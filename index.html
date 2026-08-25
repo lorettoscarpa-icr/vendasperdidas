@@ -308,14 +308,11 @@
         <div class="chips" id="chCategoria"></div>
       </div>
       <label class="f">Modelo</label>
-      <div class="seg">
-        <button type="button" id="segSis" class="on" onclick="setModoModelo('sistema')">Do sistema</button>
-        <button type="button" id="segLivre" onclick="setModoModelo('livre')">Livre</button>
-      </div>
       <div class="pickWrap">
         <input type="text" id="fModelo" autocomplete="off" placeholder="Digite pra buscar o modelo no catálogo...">
         <div id="pickList" class="pickList hidden"></div>
       </div>
+      <div id="livreHint" class="gradeHint hidden">Modelo não está no catálogo — sem problema: será registrado do jeito que você escreveu.</div>
       <div id="pickSel" class="pickSel hidden">
         <img id="pickSelFoto" class="hidden" alt="">
         <span id="pickSelNome"></span>
@@ -446,7 +443,7 @@ const COL = 'ls_vendas_perdidas';
 const COL_CATALOGO = 'ls_catalogo';        // catálogo da Central do Estoque (doc 'loja')
 const COL_COLECOES = 'colecoes_modelos';   // Central de Coleções (docs por ano, models[].salePrice)
 const VENDEDORAS = ['Jhennifer','Ialey','Michelly','Natália'];
-const CANAIS = ['Loja física','WhatsApp','Instagram','Telefone'];
+const CANAIS = ['Loja física','WhatsApp'];
 const CATEGORIAS = ['Sapato Social','Sapato Casual','Mocassim / Loafer','Tênis','Bota','Sandália / Chinelo','Cinto','Carteira','Outro'];
 const CAT_CALCADO = ['Sapato Social','Sapato Casual','Mocassim / Loafer','Tênis','Bota','Sandália / Chinelo'];
 const NUMS = ['37','38','39','40','41','42','43','44','45','46'];
@@ -746,47 +743,37 @@ function categoriaDoNome(nome){
   return 'Sapato Casual';
 }
 
-let modoModelo = 'sistema'; /* 'sistema' = busca no catálogo · 'livre' = texto solto */
-
 function updateBlocos(){
-  const mostrar = (modoModelo==='livre') || !!produtoSel;
+  /* os blocos aparecem quando há um produto do catálogo OU um nome digitado
+     (modelo fora do catálogo vale como descrição livre, sem botão pra escolher) */
+  const mostrar = !!produtoSel || !!$('fModelo').value.trim() || !!sel.categoria;
   $('blkCategoria').classList.toggle('hidden', !mostrar);
   $('blkCor').classList.toggle('hidden', !mostrar);
   if(!mostrar) $('secNumeracao').classList.add('hidden');
   else $('secNumeracao').classList.toggle('hidden', !(produtoSel || CAT_CALCADO.includes(sel.categoria)));
 }
 
-function setModoModelo(m){
-  modoModelo = m;
-  $('segSis').classList.toggle('on', m==='sistema');
-  $('segLivre').classList.toggle('on', m==='livre');
-  $('pickList').classList.add('hidden');
-  if(m==='livre' && produtoSel){ produtoSel=null; $('pickSel').classList.add('hidden'); aplicarProdutoNaUI(); }
-  $('fModelo').value='';
-  $('fModelo').placeholder = m==='sistema'
-    ? 'Digite pra buscar o modelo no catálogo...'
-    : 'Descreva o modelo que o cliente queria...';
-  updateBlocos();
-}
-
 $('fModelo').addEventListener('input', e=>{
-  if(modoModelo!=='sistema'){ $('pickList').classList.add('hidden'); return; }
-  if(produtoSel){ produtoSel=null; $('pickSel').classList.add('hidden'); aplicarProdutoNaUI(); updateBlocos(); }
+  if(produtoSel){ produtoSel=null; $('pickSel').classList.add('hidden'); aplicarProdutoNaUI(); }
   const q = normaliza(e.target.value.trim());
   const list = $('pickList');
-  if(q.length<2 || !catalogo.length){ list.classList.add('hidden'); return; }
-  const hits = catalogo.filter(p=>normaliza(p.nome).includes(q)).slice(0,8);
-  if(!hits.length){ list.classList.add('hidden'); return; }
-  list.innerHTML = hits.map(p=>{
-    const dots = (p.cores||[]).slice(0,5).map(c=>`<span class="dot" style="background:${c.hex||'#888'}"></span>`).join('');
-    const foto = fotoDoProduto(p.id);
-    return `<div class="pickItem" data-id="${p.id}">${foto?`<img src="${foto}" alt="">`:''}<span class="nm">${p.nome}</span><span class="dots">${dots}</span></div>`;
-  }).join('');
-  list.classList.remove('hidden');
-  [...list.children].forEach(el=>el.onclick=()=>selecionarProduto(el.dataset.id));
+  const hits = (q.length>=2 && catalogo.length) ? catalogo.filter(p=>normaliza(p.nome).includes(q)).slice(0,8) : [];
+  if(!hits.length){
+    list.classList.add('hidden');
+  }else{
+    list.innerHTML = hits.map(p=>{
+      const dots = (p.cores||[]).slice(0,5).map(c=>`<span class="dot" style="background:${c.hex||'#888'}"></span>`).join('');
+      const foto = fotoDoProduto(p.id);
+      return `<div class="pickItem" data-id="${p.id}">${foto?`<img src="${foto}" alt="">`:''}<span class="nm">${p.nome}</span><span class="dots">${dots}</span></div>`;
+    }).join('');
+    list.classList.remove('hidden');
+    [...list.children].forEach(el=>el.onclick=()=>selecionarProduto(el.dataset.id));
+  }
+  $('livreHint').classList.toggle('hidden', !(q.length>=2 && !hits.length));
+  updateBlocos();
 });
 $('fModelo').addEventListener('change', ()=>{
-  if(modoModelo!=='livre' || sel.categoria) return;
+  if(produtoSel || sel.categoria) return;
   const cat = catConhecida(null, $('fModelo').value);
   if(cat){
     sel.categoria = cat;
@@ -1021,10 +1008,8 @@ function editarRegistro(id){
   sel.canal = r.canal;
   [...$('chCanal').children].forEach(c=>c.classList.toggle('on', c.textContent===r.canal));
   if(r.produtoId!=null && catalogo.some(p=>String(p.id)===String(r.produtoId))){
-    setModoModelo('sistema');
     selecionarProduto(r.produtoId);
   }else{
-    setModoModelo('livre');
     $('fModelo').value = r.modelo || '';
   }
   sel.categoria = (r.categoria && r.categoria!=='Sem categoria') ? r.categoria : null;
@@ -1136,7 +1121,7 @@ function listarPendencias(){
   if(!sel.canal) faltas.push('Onde foi o atendimento');
   if(!itens.length || itemPreenchido()){
     const modeloTxt = $('fModelo').value.trim();
-    if(!modeloTxt && !sel.categoria) faltas.push('Modelo (do sistema ou livre) ou o tipo de produto');
+    if(!modeloTxt && !sel.categoria) faltas.push('Modelo ou o tipo de produto');
     const ehCalcado = !!produtoSel || CAT_CALCADO.includes(sel.categoria);
     if(ehCalcado && (!sel.numeracao || (sel.numeracao==='Outro' && !soDigitos($('fNumOutra').value)))) faltas.push('Numeração do cliente');
     if(!sel.motivo) faltas.push('Motivo da venda não ter saído');
@@ -1236,7 +1221,7 @@ function limparItem(){
   ['chCategoria','chNumeracao','chMotivo'].forEach(id=>[...$(id).children].forEach(c=>c.classList.remove('on')));
   Object.assign(sel,{categoria:null,numeracao:null,cor:null,motivo:null});
   limparProduto();
-  setModoModelo('sistema');
+  $('pickList').classList.add('hidden'); $('livreHint').classList.add('hidden');
   $('secNumeracao').classList.add('hidden'); $('fCorOutra').classList.add('hidden'); $('fNumOutra').classList.add('hidden');
 }
 
@@ -1576,7 +1561,7 @@ function boot(){
   buildChips('chCategoria', CATEGORIAS, 'categoria');
   buildChips('chMotivo', MOTIVOS, 'motivo');
   aplicarProdutoNaUI();
-  setModoModelo('sistema');
+  updateBlocos();
   carregarCatalogo();
   carregarFotos();
   carregarMapa();
