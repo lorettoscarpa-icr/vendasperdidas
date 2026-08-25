@@ -149,6 +149,9 @@
   .reg .motivo.cheg{color:var(--gold);border-color:var(--gold-soft);background:var(--gold-dim)}
   .reg.chegou{border-color:var(--gold-soft);box-shadow:0 0 0 1px var(--gold-dim)}
   .chegouBanner{border:1px solid var(--gold-soft);background:var(--gold-dim);color:var(--gold);border-radius:var(--r);padding:13px 15px;margin-bottom:12px;font-size:14px;font-weight:600;line-height:1.5}
+  .editBanner{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid var(--warn);background:rgba(224,182,79,.12);color:var(--warn);border-radius:var(--r);padding:12px 15px;margin-bottom:12px;font-size:13.5px;font-weight:600;line-height:1.4}
+  .editBanner .linkBtn{color:var(--warn);flex:none}
+  .dupHint{border:1px solid rgba(224,182,79,.45);background:rgba(224,182,79,.1);color:var(--warn);border-radius:10px;padding:9px 12px;margin-top:8px;font-size:12.5px;line-height:1.5}
   .avRow{display:flex;align-items:flex-start;gap:10px;padding:9px 0;border-bottom:1px solid rgba(201,169,80,.08);font-size:13.5px;color:var(--ink-dim);line-height:1.55}
   .avRow:last-child{border-bottom:none}
   .avRow .ico{flex:none;font-size:16px;line-height:1.3}
@@ -226,6 +229,10 @@
 
   <!-- ===== REGISTRAR ===== -->
   <div id="view-registrar">
+    <div id="editBanner" class="editBanner hidden">
+      <span id="editBannerTxt"></span>
+      <button type="button" class="linkBtn" onclick="cancelarEdicao()">Cancelar</button>
+    </div>
     <div class="card">
       <div class="eyebrow">Atendimento</div>
       <label class="f">Data do atendimento</label>
@@ -289,6 +296,7 @@
         <input type="text" id="fCliNome" placeholder="Nome">
         <label class="f">WhatsApp</label>
         <input type="tel" id="fCliZap" class="mono" inputmode="numeric" placeholder="(62) 9 0000-0000">
+        <div id="dupHint" class="dupHint hidden"></div>
         <label class="checkRow"><input type="checkbox" id="fAvisar" checked><span>Avisar o cliente quando o produto chegar</span></label>
       </div>
       <label class="f">Observações <span class="opt">(opcional)</span></label>
@@ -321,6 +329,7 @@
       <div class="kpi"><div class="n" id="kQtd">0</div><div class="l">Registros</div></div>
       <div class="kpi"><div class="n" id="kContato">0%</div><div class="l">Com contato</div></div>
     </div>
+    <div class="card hidden" id="cardChegadas"><div class="eyebrow">Reposição no estoque — clientes esperando</div><div id="gChegadas"></div></div>
     <div class="card"><div class="eyebrow">Por tipo de produto</div><div id="gCategoria"></div></div>
     <div class="card">
       <div class="eyebrow">Modelos mais perdidos</div>
@@ -355,6 +364,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script>
 /* =========================================================
@@ -382,6 +392,20 @@ const NUMS = ['37','38','39','40','41','42','43','44','45','46'];
 const CORES = ['Preto','Marrom Café','Caramelo / Whisky','Pinhão','Azul Marinho','Outra'];
 const MOTIVOS = ['Sem a numeração','Sem a cor','Modelo esgotado','Não trabalhamos o modelo','Não quis esperar encomenda','Outro'];
 
+/* login herdado da Central: os painéis vivem na mesma origem (lorettoscarpa-icr.github.io),
+   então a sessão do Firebase Auth feita na Central vale aqui dentro também. Sem o SDK de
+   auth as regras do Firestore (que exigem conta de e-mail) derrubavam tudo pro modo local. */
+const EMAIL_PERFIL = {
+  'lorettoscarpa@gmail.com'         :'Gestão',
+  'larissalorettoscarpa@gmail.com'  :'Gestão',
+  'jhenniferlorettoscarpa@gmail.com':'Jhennifer',
+  'ialeylorettoscarpa@gmail.com'    :'Ialey',
+  'michellylorettoscarpa@gmail.com' :'Michelly',
+  'natalialorettoscarpa@gmail.com'  :'Natália'
+};
+const GESTAO_EMAILS = ['lorettoscarpa@gmail.com','larissalorettoscarpa@gmail.com','jhenniferlorettoscarpa@gmail.com'];
+let emailLogado = null;
+
 let db = null, usandoFirebase = false;
 try{
   if(firebaseConfig && firebaseConfig.projectId){
@@ -390,6 +414,18 @@ try{
     usandoFirebase = true;
   }
 }catch(e){ console.warn('Firebase não inicializado:', e); }
+
+if(usandoFirebase && firebase.auth){
+  try{
+    firebase.auth().onAuthStateChanged(u=>{
+      emailLogado = u ? (u.email||'').trim().toLowerCase() : null;
+      const p = emailLogado ? EMAIL_PERFIL[emailLogado] : null;
+      if(!p) return;
+      if(!perfil) entrar(p); /* entra sozinha com o login da Central */
+      else if(perfil!==p && !(perfil==='Gestão' && GESTAO_EMAILS.includes(emailLogado))) entrar(p); /* perfil salvo de outra pessoa neste aparelho */
+    });
+  }catch(e){ console.warn('Auth indisponível:', e); }
+}
 
 /* ---------- estado ---------- */
 let perfil = localStorage.getItem('lsvp_perfil') || null;
@@ -407,6 +443,16 @@ function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(
 function hojeISO(){ const d=new Date(); return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10); }
 function fmtData(iso){ if(!iso) return ''; const [a,m,d]=iso.split('-'); return `${d}/${m}/${a}`; }
 function soDigitos(s){ return (s||'').replace(/\D/g,''); }
+function diasDesde(iso){ if(!iso) return 0; const t=new Date(String(iso).slice(0,10)+'T00:00:00').getTime(); return Math.floor((Date.now()-t)/864e5); }
+function fmtZap(v){
+  const d = soDigitos(v).slice(0,11);
+  if(!d) return '';
+  if(d.length<=2) return '('+d;
+  const resto = d.slice(2);
+  if(resto.length<=4) return '('+d.slice(0,2)+') '+resto;
+  if(d.length===11) return '('+d.slice(0,2)+') '+resto.slice(0,1)+' '+resto.slice(1,5)+(resto.length>5?'-'+resto.slice(5):'');
+  return '('+d.slice(0,2)+') '+resto.slice(0,4)+'-'+resto.slice(4);
+}
 
 /* máscara moeda */
 $('fValor')?.addEventListener('input', e=>{
@@ -693,6 +739,33 @@ document.addEventListener('click', e=>{
   if(!e.target.closest('.pickWrap')) $('pickList').classList.add('hidden');
 });
 
+/* ---------- WhatsApp: máscara + alerta de cliente repetido ---------- */
+$('fCliZap').addEventListener('input', e=>{ e.target.value = fmtZap(e.target.value); });
+$('fCliZap').addEventListener('blur', checarDuplicado);
+
+/* registros deste WhatsApp em qualquer mês (Firestore por índice; local pelo storage) */
+async function registrosDoZap(zapD){
+  if(historico) return historico.filter(r=>r.clienteZap===zapD);
+  if(usandoFirebase){
+    try{
+      const s = await db.collection(COL).where('clienteZap','==',zapD).get();
+      return s.docs.map(d=>({id:d.id, ...d.data()}));
+    }catch(e){ return registros.filter(r=>r.clienteZap===zapD); }
+  }
+  return JSON.parse(localStorage.getItem('lsvp_registros')||'[]').filter(r=>r.clienteZap===zapD);
+}
+async function checarDuplicado(){
+  const el = $('dupHint'); if(!el) return;
+  const zapD = soDigitos($('fCliZap').value);
+  if(zapD.length<10){ el.classList.add('hidden'); return; }
+  const doCli = (await registrosDoZap(zapD)).filter(r=>r.id!==editandoId);
+  if(!doCli.length){ el.classList.add('hidden'); return; }
+  el.innerHTML = '⚠ Esse WhatsApp já tem '+doCli.length+' registro'+(doCli.length>1?'s':'')+': '
+    + doCli.slice(0,3).map(r=>(r.modelo||r.categoria)+' ('+fmtData(r.dataAtendimento)+', '+r.vendedora+')').join(' · ')
+    + (doCli.length>3?'…':'')+' — confira antes de registrar de novo.';
+  el.classList.remove('hidden');
+}
+
 function selecionarProduto(id){
   produtoSel = catalogo.find(p=>String(p.id)===String(id)) || null;
   $('pickList').classList.add('hidden');
@@ -803,6 +876,11 @@ function buildLogin(){
   g.appendChild(bg);
 }
 function entrar(p){
+  /* logada na Central como vendedora? então Gestão não é o perfil dela */
+  if(p==='Gestão' && emailLogado && EMAIL_PERFIL[emailLogado] && !GESTAO_EMAILS.includes(emailLogado)){
+    toast('A Gestão é da diretoria — entrando como '+EMAIL_PERFIL[emailLogado]);
+    p = EMAIL_PERFIL[emailLogado];
+  }
   perfil = p;
   localStorage.setItem('lsvp_perfil', p);
   boot();
@@ -864,6 +942,63 @@ async function excluirDoc(id){
 
 /* ---------- salvar ---------- */
 let itens = []; /* modelos já adicionados nesta venda */
+let editandoId = null; /* id do registro sendo editado (null = registro novo) */
+
+function editarRegistro(id){
+  const r = registros.find(x=>x.id===id); if(!r) return;
+  limparForm();
+  editandoId = id;
+  $('fData').value = r.dataAtendimento || hojeISO();
+  sel.canal = r.canal;
+  [...$('chCanal').children].forEach(c=>c.classList.toggle('on', c.textContent===r.canal));
+  if(r.produtoId!=null && catalogo.some(p=>String(p.id)===String(r.produtoId))){
+    setModoModelo('sistema');
+    selecionarProduto(r.produtoId);
+  }else{
+    setModoModelo('livre');
+    $('fModelo').value = r.modelo || '';
+  }
+  sel.categoria = (r.categoria && r.categoria!=='Sem categoria') ? r.categoria : null;
+  [...$('chCategoria').children].forEach(c=>c.classList.toggle('on', !!sel.categoria && c.textContent===sel.categoria));
+  updateBlocos();
+  if(r.numeracao!=null){
+    const grade = gradeDoProduto();
+    const naLista = (grade || NUMS).map(String).includes(String(r.numeracao));
+    sel.numeracao = naLista ? String(r.numeracao) : 'Outro';
+    renderNumeracao();
+    if(!naLista){ $('fNumOutra').classList.remove('hidden'); $('fNumOutra').value = r.numeracao; }
+  }
+  if(r.cor){
+    const chips = [...$('chCor').children];
+    const alvo = chips.find(c=>c.textContent===r.cor);
+    if(alvo){ sel.cor = r.cor; chips.forEach(x=>x.classList.toggle('on', x===alvo)); }
+    else{
+      sel.cor = 'Outra';
+      chips.forEach(x=>x.classList.toggle('on', x.textContent==='Outra'));
+      $('fCorOutra').classList.remove('hidden'); $('fCorOutra').value = r.cor;
+    }
+    atualizarFotoSel();
+  }
+  sel.motivo = r.motivo || null;
+  [...$('chMotivo').children].forEach(c=>c.classList.toggle('on', c.textContent===sel.motivo));
+  $('fValor').value = (r.valor||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); valorAuto = false;
+  $('fCliNome').value = r.clienteNome || '';
+  $('fCliZap').value = fmtZap(r.clienteZap || '');
+  $('fAvisar').checked = r.avisar !== false;
+  $('fObs').value = r.obs || '';
+  /* um registro por vez: sem “adicionar outro modelo” no modo edição */
+  document.querySelector('.addBtn').classList.add('hidden');
+  $('editBannerTxt').textContent = 'Editando o registro de '+fmtData(r.dataAtendimento)+' — '+(r.modelo||r.categoria);
+  $('editBanner').classList.remove('hidden');
+  $('btnSalvar').textContent = 'Salvar alterações';
+  goTab('registrar');
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+function cancelarEdicao(){
+  const volta = perfil==='Gestão' ? 'gestao' : 'meus';
+  limparForm();
+  goTab(volta);
+}
 
 function coletarItem(){
   const modeloTxt = $('fModelo').value.trim();
@@ -941,6 +1076,38 @@ async function salvar(){
   if(!$('fCliNome').value.trim()) return err.textContent='Informe o nome do cliente.';
   if(zapD.length<10) return err.textContent='WhatsApp incompleto — confira o DDD e o número.';
 
+  /* modo edição: atualiza o registro no lugar, sem criar outro */
+  if(editandoId){
+    const {_ensinarCat,_pid,_nome,...campos} = lista[0];
+    $('btnSalvar').disabled = true;
+    try{
+      await atualizarDoc(editandoId, {...campos,
+        mes: data.slice(0,7), dataAtendimento: data, canal: sel.canal,
+        clienteNome: $('fCliNome').value.trim(), clienteZap: zapD,
+        avisar: $('fAvisar').checked, obs: $('fObs').value.trim() || null});
+      salvarMapa(_pid, _nome, _ensinarCat, campos.valor);
+      toast('✓ Registro atualizado');
+      const m = data.slice(0,7);
+      limparForm();
+      goTab(perfil==='Gestão' ? 'gestao' : 'meus');
+      if(m!==mesAtual) setMes(m);
+    }catch(e){ console.error(e); err.textContent='Erro ao salvar. Tente novamente.'; }
+    $('btnSalvar').disabled = false;
+    return;
+  }
+
+  /* cliente repetido: mesmo WhatsApp já tem registro do mesmo modelo? */
+  try{
+    const antigos = await registrosDoZap(zapD);
+    const repetidos = lista.map(it=>{
+      const hit = antigos.find(p=> it.produtoId!=null
+        ? String(p.produtoId)===String(it.produtoId)
+        : (p.modelo && it.modelo && normaliza(p.modelo)===normaliza(it.modelo)));
+      return hit ? (it.modelo||it.categoria) : null;
+    }).filter(Boolean);
+    if(repetidos.length && !confirm('Esse cliente já tem registro de: '+repetidos.join(', ')+'.\nRegistrar mesmo assim?')) return;
+  }catch(_){}
+
   const atendimentoId = uid();
   const base = {
     mes: data.slice(0,7),
@@ -982,6 +1149,11 @@ function limparItem(){
 }
 
 function limparForm(){
+  editandoId = null;
+  $('editBanner').classList.add('hidden');
+  $('btnSalvar').textContent = 'Registrar venda perdida';
+  document.querySelector('.addBtn').classList.remove('hidden');
+  $('dupHint').classList.add('hidden');
   limparItem();
   itens = []; renderItens();
   ['fCliNome','fCliZap','fObs'].forEach(id=>$(id).value='');
@@ -1016,22 +1188,28 @@ function cardRegistro(r, comAcoes){
   let acoes = '';
   if(comAcoes){
     const zap = r.clienteZap ? (chegou
-      ? `<button class="aBtn zap" onclick="event.stopPropagation();avisarCliente('${r.id}')">📣 Avisar que chegou</button>`
+      ? `<button class="aBtn zap" onclick="event.stopPropagation();avisarCliente('${r.id}')">${r.avisadoEm?'📣 Chamar de novo':'📣 Avisar que chegou'}</button>`
       : `<button class="aBtn zap" onclick="event.stopPropagation();window.open('https://wa.me/55${r.clienteZap}','_blank')">WhatsApp</button>`) : '';
     const resolver = res
       ? `<button class="aBtn" onclick="atualizarDoc('${r.id}',{status:'pendente',resolvidoEm:null})">Reabrir</button>`
       : `<button class="aBtn" onclick="atualizarDoc('${r.id}',{status:'resolvido',resolvidoEm:new Date().toISOString()});toast('Marcado como resolvido')">✓ Resolvido</button>`;
     const btnChegou = (perfil==='Gestão' && r.status==='pendente')
       ? `<button class="aBtn" onclick="atualizarDoc('${r.id}',{status:'chegou',chegouEm:new Date().toISOString()});toast('Avisado — vai aparecer pra vendedora chamar o cliente')">📦 Chegou</button>` : '';
+    const editar = (perfil==='Gestão' || (r.vendedora===perfil && r.status==='pendente'))
+      ? `<button class="aBtn" onclick="editarRegistro('${r.id}')">Editar</button>` : '';
     const del = perfil==='Gestão' ? `<button class="aBtn del" onclick="excluirDoc('${r.id}')">Excluir</button>` : '';
     const defCat = (perfil==='Gestão' && r.categoria==='Sem categoria')
       ? `<select class="catSel" onchange="definirCategoria('${r.id}', this.value)"><option value="">Definir categoria…</option>${CATEGORIAS.map(c=>'<option>'+c+'</option>').join('')}</select>` : '';
-    acoes = `<div class="actions">${defCat}${zap}${btnChegou}${resolver}${del}</div>`;
+    acoes = `<div class="actions">${defCat}${zap}${btnChegou}${editar}${resolver}${del}</div>`;
   }
+  const tagChegou = chegou
+    ? (r.avisadoEm ? '📣 Avisado '+(d=>d===0?'hoje':'há '+d+(d===1?' dia':' dias'))(diasDesde(r.avisadoEm))+' — aguardando resposta'
+                   : '📦 Chegou — chamar o cliente')
+    : '';
   return `<div class="reg${chegou?' chegou':''}">
     <div class="top"><div class="prod">${r.categoria}${mod}</div><div class="valor">${fmtBRL2(r.valor)}</div></div>
     <div class="meta">${fmtData(r.dataAtendimento)} · ${r.vendedora} · ${r.canal}${num}${cor}${cli}</div>
-    <span class="motivo ${res?'res':(chegou?'cheg':'')}">${res?'✓ Resolvido':(chegou?'📦 Chegou — chamar o cliente':r.motivo)}</span>
+    <span class="motivo ${res?'res':(chegou?'cheg':'')}">${res?'✓ Resolvido':(chegou?tagChegou:r.motivo)}</span>
     ${r.obs?`<div class="obs">“${r.obs}”</div>`:''}
     ${acoes}
   </div>`;
@@ -1047,6 +1225,9 @@ function avisarCliente(id){
   const det = (r.numeracao?' nº '+r.numeracao:'')+(r.cor&&r.cor!=='Outra'?' na cor '+r.cor:'');
   const msg = `Oi${nome?' '+nome:''}! Tudo bem? Aqui é ${quem} da Loretto Scarpa 😊\n\nBoa notícia: chegou o ${modelo}${det} que você procurou aqui com a gente e não tinha na época!\n\nPosso separar o seu?`;
   window.open('https://wa.me/55'+r.clienteZap+'?text='+encodeURIComponent(msg),'_blank');
+  /* deixa registrado QUANDO o cliente foi chamado — é o que separa "chegou e ninguém
+     avisou" de "avisado, esperando resposta" */
+  if(r.status==='chegou') atualizarDoc(id, {avisadoEm:new Date().toISOString()});
 }
 
 async function definirCategoria(id, cat){
@@ -1067,8 +1248,11 @@ function renderMeus(){
   const meus = perfil==='Gestão' ? registros : registros.filter(r=>r.vendedora===perfil);
   $('countMeus').textContent = meus.length+' registro'+(meus.length===1?'':'s');
   const chegados = meus.filter(r=>r.status==='chegou');
-  const banner = chegados.length
-    ? `<div class="chegouBanner">📦 ${chegados.length===1?'1 modelo chegou':chegados.length+' modelos chegaram'} — chame o cliente pelo WhatsApp e depois marque “✓ Resolvido”.</div>` : '';
+  const novos = chegados.filter(r=>!r.avisadoEm);
+  const semResposta = chegados.filter(r=>r.avisadoEm && diasDesde(r.avisadoEm)>=2);
+  let banner = '';
+  if(novos.length) banner += `<div class="chegouBanner">📦 ${novos.length===1?'1 modelo chegou':novos.length+' modelos chegaram'} — toque em “📣 Avisar que chegou” e depois marque “✓ Resolvido”.</div>`;
+  if(semResposta.length) banner += `<div class="chegouBanner">⏰ ${semResposta.length===1?'1 cliente avisado':semResposta.length+' clientes avisados'} há 2+ dias sem resposta — vale chamar de novo.</div>`;
   const ordenados = [...chegados, ...meus.filter(r=>r.status!=='chegou')];
   $('listMeus').innerHTML = meus.length
     ? banner + ordenados.map(r=>cardRegistro(r, true)).join('')
@@ -1101,6 +1285,7 @@ function renderGestao(){
   barGroup('gNumeracao', nums, totN, v=>v+'×');
   renderModelosPerdidos();
   renderAvaliacao();
+  renderChegadas();
   if(!historico && !_histCarregando) carregarHistorico(); /* alimenta o histórico e a avaliação */
 
   /* filtros da lista */
@@ -1134,7 +1319,7 @@ async function carregarHistorico(){
     }
   }catch(e){ console.warn('Histórico indisponível:', e); }
   _histCarregando = false;
-  if(perfil==='Gestão'){ renderModelosPerdidos(); renderAvaliacao(); }
+  if(perfil==='Gestão'){ renderModelosPerdidos(); renderAvaliacao(); renderChegadas(); }
 }
 
 /* ranking de modelos: junta pelo produto do catálogo (registros "livres" agrupam pelo nome digitado) */
@@ -1168,6 +1353,56 @@ function renderModelosPerdidos(){
       <div class="rv"><b>${m.n}×</b><span>${fmtBRL(m.valor)}</span></div>
     </div>`;
   }).join('') : `<div class="empty" style="padding:14px">${rankModo==='hist'?'Nenhum registro ainda.':'Sem dados no mês.'}</div>`;
+}
+
+/* ---------- reposição detectada: cruza pendentes com o estoque importado ---------- */
+/* ls_rep_cfg/loja.estoque = {códigoDaEtiqueta: quantidade} (importado do Kigi na
+   Central do Estoque). O catálogo dá o código por modelo/cor/numeração. */
+let estoqueRep = null;
+async function carregarEstoqueRep(){
+  try{
+    if(usandoFirebase){
+      const s = await db.collection('ls_rep_cfg').doc('loja').get();
+      const d = s.data();
+      estoqueRep = (d && d.estoque) || {};
+    }
+  }catch(e){ console.warn('Estoque da reposição indisponível:', e); }
+  renderChegadas();
+}
+function qtdEstoque(r){
+  if(!estoqueRep || r.produtoId==null || !r.numeracao) return 0;
+  const p = catalogo.find(x=>String(x.id)===String(r.produtoId));
+  if(!p) return 0;
+  const cores = p.cores||[];
+  const daCor = r.cor ? cores.filter(c=>normaliza(c.nome)===normaliza(r.cor)) : [];
+  let melhor = 0;
+  (daCor.length?daCor:cores).forEach(c=>{
+    const cod = (c.skus||{})[String(r.numeracao)];
+    if(cod==null) return;
+    const q = estoqueRep[cod] ?? estoqueRep[String(cod).toUpperCase()] ?? 0;
+    if(q>melhor) melhor = q;
+  });
+  return melhor;
+}
+function renderChegadas(){
+  const card = $('cardChegadas'); if(!card) return;
+  if(perfil!=='Gestão' || !estoqueRep){ card.classList.add('hidden'); return; }
+  const fonte = (historico||registros).filter(r=>r.status==='pendente');
+  const hits = fonte.map(r=>({r, q:qtdEstoque(r)})).filter(x=>x.q>0)
+    .sort((a,b)=>(a.r.dataAtendimento||'').localeCompare(b.r.dataAtendimento||''));
+  if(!hits.length){ card.classList.add('hidden'); return; }
+  card.classList.remove('hidden');
+  $('gChegadas').innerHTML = hits.slice(0,20).map(({r,q})=>{
+    const foto = fotoDoProduto(r.produtoId, r.cor);
+    return `<div class="rankRow">
+      ${foto?`<img src="${foto}" alt="">`:`<div class="ph">${((r.modelo||'?')[0]||'?').toUpperCase()}</div>`}
+      <div class="ri">
+        <div class="rn">${r.modelo||r.categoria} — nº ${r.numeracao}${r.cor?' · '+r.cor:''}</div>
+        <div class="rs">${r.clienteNome||'cliente'} · ${r.vendedora} · ${fmtData(r.dataAtendimento)} · <b style="color:var(--ok)">${q} un no estoque</b></div>
+      </div>
+      <button class="aBtn" onclick="atualizarDoc('${r.id}',{status:'chegou',chegouEm:new Date().toISOString()});toast('Marcado — a vendedora vai ver o aviso')">📦 Marcar chegou</button>
+    </div>`;
+  }).join('');
 }
 
 /* ---------- avaliação do sistema: padrões que pedem providência ---------- */
@@ -1206,6 +1441,12 @@ function renderAvaliacao(){
     if(m.livre && m.n>=2)
       avisos.push({peso:m.n+2, ico:'✨', html:`Modelo fora do catálogo com procura: <b>${m.nome}</b> <span class="n">${m.n}×</span> — avaliar trabalhar`});
   });
+  /* pendentes esquecidos: 30+ dias sem reposição é hora de decidir */
+  const velhos = fonte.filter(r=>r.status==='pendente' && diasDesde(r.dataAtendimento)>30);
+  if(velhos.length){
+    const nomes = [...new Set(velhos.map(r=>r.modelo||r.categoria))];
+    avisos.push({peso:100, ico:'⏳', html:`<b>${velhos.length} registro${velhos.length>1?'s':''}</b> pendente${velhos.length>1?'s':''} há mais de 30 dias sem reposição (${nomes.slice(0,3).join(', ')}${nomes.length>3?'…':''}) — decidir: comprar ou desistir`});
+  }
   avisos.sort((a,b)=>b.peso-a.peso);
   el.innerHTML = avisos.length
     ? avisos.slice(0,10).map(a=>`<div class="avRow"><span class="ico">${a.ico}</span><div>${a.html}</div></div>`).join('')
@@ -1246,6 +1487,7 @@ function boot(){
   carregarFotos();
   carregarMapa();
   carregarPrecosOficiais();
+  if(perfil==='Gestão') carregarEstoqueRep();
   $('secNumeracao').classList.add('hidden');
   $('fData').value = hojeISO();
   $('mesMeus').value = mesAtual; $('mesGestao').value = mesAtual;
@@ -1260,7 +1502,17 @@ function boot(){
 }
 
 buildLogin();
-if(perfil) boot();
+if(perfil){
+  if(usandoFirebase && firebase.auth){
+    /* espera o login herdado da Central chegar do IndexedDB antes de abrir as
+       assinaturas — senão a primeira consulta sai sem token e as regras derrubam */
+    let iniciou = false;
+    const inicia = ()=>{ if(!iniciou){ iniciou = true; boot(); } };
+    const t = setTimeout(inicia, 2500); /* sem login nenhum, segue mesmo assim */
+    try{ firebase.auth().onAuthStateChanged(()=>{ clearTimeout(t); inicia(); }); }
+    catch(_){ inicia(); }
+  }else boot();
+}
 </script>
 </body>
 </html>
