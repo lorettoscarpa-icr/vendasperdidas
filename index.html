@@ -146,6 +146,14 @@
   .reg .meta{font-family:'DM Mono',monospace;font-size:10.5px;letter-spacing:.06em;color:var(--ink-faint);margin-top:5px;line-height:1.7}
   .reg .motivo{display:inline-block;margin-top:8px;font-size:12px;font-weight:600;color:var(--danger);border:1px solid rgba(217,132,89,.4);border-radius:999px;padding:3px 10px}
   .reg .motivo.res{color:var(--ok);border-color:rgba(143,191,106,.4)}
+  .reg .motivo.cheg{color:var(--gold);border-color:var(--gold-soft);background:var(--gold-dim)}
+  .reg.chegou{border-color:var(--gold-soft);box-shadow:0 0 0 1px var(--gold-dim)}
+  .chegouBanner{border:1px solid var(--gold-soft);background:var(--gold-dim);color:var(--gold);border-radius:var(--r);padding:13px 15px;margin-bottom:12px;font-size:14px;font-weight:600;line-height:1.5}
+  .avRow{display:flex;align-items:flex-start;gap:10px;padding:9px 0;border-bottom:1px solid rgba(201,169,80,.08);font-size:13.5px;color:var(--ink-dim);line-height:1.55}
+  .avRow:last-child{border-bottom:none}
+  .avRow .ico{flex:none;font-size:16px;line-height:1.3}
+  .avRow b{color:var(--ink)}
+  .avRow .n{font-family:'DM Mono',monospace;font-size:11px;color:var(--gold)}
   .reg .obs{font-size:13px;color:var(--ink-dim);margin-top:8px;font-style:italic}
   .reg .actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
   .aBtn{border:1px solid var(--line);background:var(--bg-2);color:var(--ink-dim);border-radius:9px;padding:8px 13px;font-size:12.5px;font-weight:600;cursor:pointer;transition:.12s}
@@ -276,11 +284,7 @@
 
     <div class="card">
       <div class="eyebrow">Cliente</div>
-      <div class="switchRow">
-        <span>Cliente deixou contato?</span>
-        <div class="sw" id="swContato" onclick="toggleContato()"></div>
-      </div>
-      <div id="secContato" class="hidden">
+      <div id="secContato">
         <label class="f">Nome do cliente</label>
         <input type="text" id="fCliNome" placeholder="Nome">
         <label class="f">WhatsApp</label>
@@ -318,7 +322,15 @@
       <div class="kpi"><div class="n" id="kContato">0%</div><div class="l">Com contato</div></div>
     </div>
     <div class="card"><div class="eyebrow">Por tipo de produto</div><div id="gCategoria"></div></div>
-    <div class="card"><div class="eyebrow">Modelos mais perdidos</div><div id="gModelo"></div></div>
+    <div class="card">
+      <div class="eyebrow">Modelos mais perdidos</div>
+      <div class="seg" style="margin-bottom:12px">
+        <button type="button" id="rkMes" class="on" onclick="setRankModo('mes')">Este mês</button>
+        <button type="button" id="rkHist" onclick="setRankModo('hist')">Histórico</button>
+      </div>
+      <div id="gModelo"></div>
+    </div>
+    <div class="card"><div class="eyebrow">Avaliação do sistema</div><div id="gAvaliacao"></div></div>
     <div class="card"><div class="eyebrow">Por motivo</div><div id="gMotivo"></div></div>
     <div class="card"><div class="eyebrow">Numerações mais perdidas</div><div id="gNumeracao"></div></div>
     <div class="card"><div class="eyebrow">Por vendedora</div><div id="gVendedora"></div></div>
@@ -330,6 +342,7 @@
         <select id="filStatus" onchange="renderGestao()">
           <option value="">Todos os status</option>
           <option value="pendente">Pendentes</option>
+          <option value="chegou">Produto chegou</option>
           <option value="resolvido">Resolvidos</option>
         </select>
       </div>
@@ -383,7 +396,7 @@ let perfil = localStorage.getItem('lsvp_perfil') || null;
 let mesAtual = new Date().toISOString().slice(0,7);
 let registros = [];   // registros do mês selecionado
 let unsub = null;
-const sel = { canal:null, categoria:null, numeracao:null, cor:null, motivo:null, contato:false };
+const sel = { canal:null, categoria:null, numeracao:null, cor:null, motivo:null };
 
 /* ---------- helpers ---------- */
 const $ = id => document.getElementById(id);
@@ -818,6 +831,7 @@ function assinarMes(){
   }
 }
 async function salvarDoc(doc){
+  historico = null; /* invalida: o próximo render da Gestão recarrega */
   if(usandoFirebase){ await db.collection(COL).add(doc); }
   else{
     const all = JSON.parse(localStorage.getItem('lsvp_registros')||'[]');
@@ -827,6 +841,7 @@ async function salvarDoc(doc){
   }
 }
 async function atualizarDoc(id, patch){
+  historico = null;
   if(usandoFirebase){ await db.collection(COL).doc(id).update(patch); }
   else{
     const all = JSON.parse(localStorage.getItem('lsvp_registros')||'[]');
@@ -837,6 +852,7 @@ async function atualizarDoc(id, patch){
 }
 async function excluirDoc(id){
   if(!confirm('Excluir este registro?')) return;
+  historico = null;
   if(usandoFirebase){ await db.collection(COL).doc(id).delete(); }
   else{
     const all = JSON.parse(localStorage.getItem('lsvp_registros')||'[]').filter(r=>r.id!==id);
@@ -922,10 +938,8 @@ async function salvar(){
     if(r.erro) return err.textContent=r.erro;
     lista.push(r.item);
   }
-  if(sel.contato){
-    if(!$('fCliNome').value.trim()) return err.textContent='Informe o nome do cliente.';
-    if(zapD.length<10) return err.textContent='WhatsApp incompleto — confira o DDD e o número.';
-  }
+  if(!$('fCliNome').value.trim()) return err.textContent='Informe o nome do cliente.';
+  if(zapD.length<10) return err.textContent='WhatsApp incompleto — confira o DDD e o número.';
 
   const atendimentoId = uid();
   const base = {
@@ -933,9 +947,9 @@ async function salvar(){
     dataAtendimento: data,
     vendedora: perfil==='Gestão' ? 'Gestão' : perfil,
     canal: sel.canal,
-    clienteNome: sel.contato ? $('fCliNome').value.trim() : null,
-    clienteZap: sel.contato ? zapD : null,
-    avisar: sel.contato ? $('fAvisar').checked : false,
+    clienteNome: $('fCliNome').value.trim(),
+    clienteZap: zapD,
+    avisar: $('fAvisar').checked,
     obs: $('fObs').value.trim() || null,
     status: 'pendente',
     atendimentoId
@@ -973,16 +987,9 @@ function limparForm(){
   ['fCliNome','fCliZap','fObs'].forEach(id=>$(id).value='');
   $('fData').value = hojeISO();
   [...$('chCanal').children].forEach(c=>c.classList.remove('on'));
-  Object.assign(sel,{canal:null,contato:false});
-  $('swContato').classList.remove('on'); $('secContato').classList.add('hidden');
+  Object.assign(sel,{canal:null});
   $('fAvisar').checked = true;
   window.scrollTo({top:0,behavior:'smooth'});
-}
-
-function toggleContato(){
-  sel.contato = !sel.contato;
-  $('swContato').classList.toggle('on', sel.contato);
-  $('secContato').classList.toggle('hidden', !sel.contato);
 }
 
 /* ---------- navegação ---------- */
@@ -1005,21 +1012,24 @@ function cardRegistro(r, comAcoes){
   const mod = r.modelo ? ` — ${r.modelo}` : '';
   const cli = r.clienteNome ? `<br>Cliente: ${r.clienteNome}${r.avisar?' · avisar quando chegar':''}` : '';
   const res = r.status==='resolvido';
+  const chegou = r.status==='chegou';
   let acoes = '';
   if(comAcoes){
     const zap = r.clienteZap ? `<button class="aBtn zap" onclick="event.stopPropagation();window.open('https://wa.me/55${r.clienteZap}','_blank')">WhatsApp</button>` : '';
     const resolver = res
       ? `<button class="aBtn" onclick="atualizarDoc('${r.id}',{status:'pendente',resolvidoEm:null})">Reabrir</button>`
       : `<button class="aBtn" onclick="atualizarDoc('${r.id}',{status:'resolvido',resolvidoEm:new Date().toISOString()});toast('Marcado como resolvido')">✓ Resolvido</button>`;
+    const btnChegou = (perfil==='Gestão' && r.status==='pendente')
+      ? `<button class="aBtn" onclick="atualizarDoc('${r.id}',{status:'chegou',chegouEm:new Date().toISOString()});toast('Avisado — vai aparecer pra vendedora chamar o cliente')">📦 Chegou</button>` : '';
     const del = perfil==='Gestão' ? `<button class="aBtn del" onclick="excluirDoc('${r.id}')">Excluir</button>` : '';
     const defCat = (perfil==='Gestão' && r.categoria==='Sem categoria')
       ? `<select class="catSel" onchange="definirCategoria('${r.id}', this.value)"><option value="">Definir categoria…</option>${CATEGORIAS.map(c=>'<option>'+c+'</option>').join('')}</select>` : '';
-    acoes = `<div class="actions">${defCat}${zap}${resolver}${del}</div>`;
+    acoes = `<div class="actions">${defCat}${zap}${btnChegou}${resolver}${del}</div>`;
   }
-  return `<div class="reg">
+  return `<div class="reg${chegou?' chegou':''}">
     <div class="top"><div class="prod">${r.categoria}${mod}</div><div class="valor">${fmtBRL2(r.valor)}</div></div>
     <div class="meta">${fmtData(r.dataAtendimento)} · ${r.vendedora} · ${r.canal}${num}${cor}${cli}</div>
-    <span class="motivo ${res?'res':''}">${res?'✓ Resolvido':r.motivo}</span>
+    <span class="motivo ${res?'res':(chegou?'cheg':'')}">${res?'✓ Resolvido':(chegou?'📦 Chegou — chamar o cliente':r.motivo)}</span>
     ${r.obs?`<div class="obs">“${r.obs}”</div>`:''}
     ${acoes}
   </div>`;
@@ -1042,8 +1052,12 @@ async function definirCategoria(id, cat){
 function renderMeus(){
   const meus = perfil==='Gestão' ? registros : registros.filter(r=>r.vendedora===perfil);
   $('countMeus').textContent = meus.length+' registro'+(meus.length===1?'':'s');
+  const chegados = meus.filter(r=>r.status==='chegou');
+  const banner = chegados.length
+    ? `<div class="chegouBanner">📦 ${chegados.length===1?'1 modelo chegou':chegados.length+' modelos chegaram'} — chame o cliente pelo WhatsApp e depois marque “✓ Resolvido”.</div>` : '';
+  const ordenados = [...chegados, ...meus.filter(r=>r.status!=='chegou')];
   $('listMeus').innerHTML = meus.length
-    ? meus.map(r=>cardRegistro(r, true)).join('')
+    ? banner + ordenados.map(r=>cardRegistro(r, true)).join('')
     : `<div class="empty"><b>Nenhum registro neste mês</b>Perdeu uma venda por falta de estoque? Registre na aba “＋ Registrar”.</div>`;
 }
 
@@ -1072,6 +1086,8 @@ function renderGestao(){
   const nums = contaPor('numeracao'); const totN = Object.values(nums).reduce((a,b)=>a+b,0);
   barGroup('gNumeracao', nums, totN, v=>v+'×');
   renderModelosPerdidos();
+  renderAvaliacao();
+  if(!historico && !_histCarregando) carregarHistorico(); /* alimenta o histórico e a avaliação */
 
   /* filtros da lista */
   const fv=$('filVend').value, fc=$('filCat').value, fs=$('filStatus').value;
@@ -1081,10 +1097,41 @@ function renderGestao(){
     : '<div class="empty" style="padding:20px">Nenhum registro com esses filtros.</div>';
 }
 
+/* ---------- histórico completo (todos os meses) ---------- */
+let rankModo = 'mes'; /* 'mes' = mês selecionado · 'hist' = todos os registros */
+let historico = null, _histCarregando = false;
+
+function setRankModo(m){
+  rankModo = m;
+  $('rkMes').classList.toggle('on', m==='mes');
+  $('rkHist').classList.toggle('on', m==='hist');
+  if(m==='hist' && !historico) carregarHistorico();
+  renderModelosPerdidos();
+}
+async function carregarHistorico(){
+  if(_histCarregando) return;
+  _histCarregando = true;
+  try{
+    if(usandoFirebase){
+      const snap = await db.collection(COL).get();
+      historico = snap.docs.map(d=>({id:d.id, ...d.data()})).filter(r=>r.mes); /* pula docs de config (_categorias) */
+    }else{
+      historico = JSON.parse(localStorage.getItem('lsvp_registros')||'[]');
+    }
+  }catch(e){ console.warn('Histórico indisponível:', e); }
+  _histCarregando = false;
+  if(perfil==='Gestão'){ renderModelosPerdidos(); renderAvaliacao(); }
+}
+
 /* ranking de modelos: junta pelo produto do catálogo (registros "livres" agrupam pelo nome digitado) */
 function renderModelosPerdidos(){
+  const fonte = (rankModo==='hist') ? (historico||[]) : registros;
+  if(rankModo==='hist' && !historico){
+    $('gModelo').innerHTML = '<div class="empty" style="padding:14px">Carregando o histórico…</div>';
+    return;
+  }
   const mapa = {};
-  registros.forEach(r=>{
+  fonte.forEach(r=>{
     const k = r.produtoId!=null ? 'p:'+r.produtoId : (r.modelo ? 'n:'+normaliza(r.modelo) : null);
     if(!k) return;
     const m = mapa[k] || (mapa[k]={nome:r.modelo||r.categoria||'—', pid:r.produtoId, livre:r.produtoId==null, n:0, valor:0, nums:{}});
@@ -1106,7 +1153,49 @@ function renderModelosPerdidos(){
       </div>
       <div class="rv"><b>${m.n}×</b><span>${fmtBRL(m.valor)}</span></div>
     </div>`;
-  }).join('') : '<div class="empty" style="padding:14px">Sem dados no mês.</div>';
+  }).join('') : `<div class="empty" style="padding:14px">${rankModo==='hist'?'Nenhum registro ainda.':'Sem dados no mês.'}</div>`;
+}
+
+/* ---------- avaliação do sistema: padrões que pedem providência ---------- */
+function renderAvaliacao(){
+  const el = $('gAvaliacao'); if(!el) return;
+  const fonte = historico || registros; /* usa o histórico completo assim que carregar */
+  const mapa = {};
+  fonte.forEach(r=>{
+    const k = r.produtoId!=null ? 'p:'+r.produtoId : (r.modelo ? 'n:'+normaliza(r.modelo) : null);
+    if(!k) return;
+    const m = mapa[k] || (mapa[k]={nome:r.modelo||r.categoria||'—', livre:r.produtoId==null, n:0, fora:{}, motivos:{}, coresSem:{}, nums:{}});
+    m.n++;
+    if(r.motivo) m.motivos[r.motivo]=(m.motivos[r.motivo]||0)+1;
+    if(r.numeracao){
+      m.nums[r.numeracao]=(m.nums[r.numeracao]||0)+1;
+      if(r.foraGrade) m.fora[r.numeracao]=(m.fora[r.numeracao]||0)+1;
+    }
+    if(r.motivo==='Sem a cor' && r.cor) m.coresSem[r.cor]=(m.coresSem[r.cor]||0)+1;
+  });
+  const avisos = [];
+  Object.values(mapa).forEach(m=>{
+    Object.entries(m.fora).filter(([,q])=>q>=2).forEach(([nu,q])=>
+      avisos.push({peso:q+10, ico:'📏', html:`Aumentar a grade de <b>${m.nome}</b>: nº ${nu} pedido <span class="n">${q}×</span> fora da grade cadastrada`}));
+    const semNum = m.motivos['Sem a numeração']||0;
+    if(semNum>=3){
+      const top = Object.entries(m.nums).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([nu,q])=>'nº '+nu+' ('+q+'×)').join(', ');
+      avisos.push({peso:semNum+8, ico:'👟', html:`<b>${m.nome}</b> perde venda por numeração <span class="n">${semNum}×</span> — reforçar ${top}`});
+    }
+    const esg = m.motivos['Modelo esgotado']||0;
+    if(esg>=2) avisos.push({peso:esg+6, ico:'🔥', html:`<b>${m.nome}</b> esgotou e segue procurado <span class="n">${esg}×</span> — vale repor`});
+    const semCor = m.motivos['Sem a cor']||0;
+    if(semCor>=2){
+      const cores = Object.entries(m.coresSem).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([c,q])=>c+' ('+q+'×)').join(', ');
+      avisos.push({peso:semCor+4, ico:'🎨', html:`<b>${m.nome}</b>: clientes pedem cor que não temos <span class="n">${semCor}×</span>${cores?' — '+cores:''}`});
+    }
+    if(m.livre && m.n>=2)
+      avisos.push({peso:m.n+2, ico:'✨', html:`Modelo fora do catálogo com procura: <b>${m.nome}</b> <span class="n">${m.n}×</span> — avaliar trabalhar`});
+  });
+  avisos.sort((a,b)=>b.peso-a.peso);
+  el.innerHTML = avisos.length
+    ? avisos.slice(0,10).map(a=>`<div class="avRow"><span class="ico">${a.ico}</span><div>${a.html}</div></div>`).join('')
+    : '<div class="empty" style="padding:14px">Sem alertas por enquanto — eles aparecem sozinhos quando os registros criam padrão: numeração pedida fora da grade, modelo esgotado que segue procurado, cor em falta…</div>';
 }
 
 function renderAll(){ renderMeus(); if(perfil==='Gestão') renderGestao(); }
