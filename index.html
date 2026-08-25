@@ -1045,7 +1045,7 @@ function avisarCliente(id){
   const quem = perfil==='Gestão' ? 'a equipe' : 'a '+perfil;
   const modelo = r.modelo || r.categoria;
   const det = (r.numeracao?' nº '+r.numeracao:'')+(r.cor&&r.cor!=='Outra'?' na cor '+r.cor:'');
-  const msg = `Oi${nome?' '+nome:''}! Tudo bem? Aqui é ${quem} da Loretto Scarpa 😊\n\nBoa notícia: chegou o ${modelo}${det} que você procurou aqui com a gente e não tinha na época!\n\nQuer que eu separe o seu? 🤎`;
+  const msg = `Oi${nome?' '+nome:''}! Tudo bem? Aqui é ${quem} da Loretto Scarpa 😊\n\nBoa notícia: chegou o ${modelo}${det} que você procurou aqui com a gente e não tinha na época!\n\nPosso separar o seu?`;
   window.open('https://wa.me/55'+r.clienteZap+'?text='+encodeURIComponent(msg),'_blank');
 }
 
