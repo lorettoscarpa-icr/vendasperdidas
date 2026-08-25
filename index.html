@@ -1015,7 +1015,9 @@ function cardRegistro(r, comAcoes){
   const chegou = r.status==='chegou';
   let acoes = '';
   if(comAcoes){
-    const zap = r.clienteZap ? `<button class="aBtn zap" onclick="event.stopPropagation();window.open('https://wa.me/55${r.clienteZap}','_blank')">WhatsApp</button>` : '';
+    const zap = r.clienteZap ? (chegou
+      ? `<button class="aBtn zap" onclick="event.stopPropagation();avisarCliente('${r.id}')">📣 Avisar que chegou</button>`
+      : `<button class="aBtn zap" onclick="event.stopPropagation();window.open('https://wa.me/55${r.clienteZap}','_blank')">WhatsApp</button>`) : '';
     const resolver = res
       ? `<button class="aBtn" onclick="atualizarDoc('${r.id}',{status:'pendente',resolvidoEm:null})">Reabrir</button>`
       : `<button class="aBtn" onclick="atualizarDoc('${r.id}',{status:'resolvido',resolvidoEm:new Date().toISOString()});toast('Marcado como resolvido')">✓ Resolvido</button>`;
@@ -1033,6 +1035,18 @@ function cardRegistro(r, comAcoes){
     ${r.obs?`<div class="obs">“${r.obs}”</div>`:''}
     ${acoes}
   </div>`;
+}
+
+/* abre o WhatsApp do cliente com a mensagem de reposição pronta */
+function avisarCliente(id){
+  const r = registros.find(x=>x.id===id);
+  if(!r || !r.clienteZap) return;
+  const nome = (r.clienteNome||'').trim().split(/\s+/)[0];
+  const quem = perfil==='Gestão' ? 'a equipe' : 'a '+perfil;
+  const modelo = r.modelo || r.categoria;
+  const det = (r.numeracao?' nº '+r.numeracao:'')+(r.cor&&r.cor!=='Outra'?' na cor '+r.cor:'');
+  const msg = `Oi${nome?' '+nome:''}! Tudo bem? Aqui é ${quem} da Loretto Scarpa 😊\n\nBoa notícia: chegou o ${modelo}${det} que você procurou aqui com a gente e não tinha na época!\n\nQuer que eu separe o seu? 🤎`;
+  window.open('https://wa.me/55'+r.clienteZap+'?text='+encodeURIComponent(msg),'_blank');
 }
 
 async function definirCategoria(id, cat){
