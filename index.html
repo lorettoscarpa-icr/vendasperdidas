@@ -92,6 +92,22 @@
   .chip .dot{margin-right:7px;vertical-align:-1px}
   .chip.na{opacity:.4}
   .gradeHint{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.08em;color:var(--ink-faint);margin-top:7px}
+  .pickItem img{width:36px;height:36px;border-radius:8px;object-fit:cover;flex:none;border:1px solid var(--line);background:var(--bg-2)}
+  .pickItem .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pickSel img{width:40px;height:40px;border-radius:9px;object-fit:cover;flex:none;border:1px solid var(--gold-soft)}
+  .rankRow{display:flex;align-items:center;gap:11px;padding:8px 0;border-bottom:1px solid rgba(201,169,80,.08)}
+  .rankRow:last-child{border-bottom:none}
+  .rankRow img,.rankRow .ph{width:42px;height:42px;border-radius:9px;object-fit:cover;flex:none;background:var(--bg-2);border:1px solid var(--line)}
+  .rankRow .ph{display:flex;align-items:center;justify-content:center;color:var(--ink-faint);font-family:'Playfair Display',serif;font-size:17px}
+  .rankRow .ri{flex:1;min-width:0}
+  .rankRow .rn{font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .rankRow .rn .lv{font-family:'DM Mono',monospace;font-size:9.5px;letter-spacing:.08em;color:var(--ink-faint);font-weight:400;margin-left:6px}
+  .rankRow .rs{font-family:'DM Mono',monospace;font-size:10.5px;color:var(--ink-faint);margin-top:3px}
+  .rankRow .track{height:4px;background:var(--bg-2);border-radius:99px;margin-top:6px;overflow:hidden}
+  .rankRow .fill{height:100%;background:linear-gradient(90deg,var(--gold-soft),var(--gold));border-radius:99px}
+  .rankRow .rv{flex:none;text-align:right}
+  .rankRow .rv b{display:block;font-family:'DM Mono',monospace;font-size:13px;color:var(--gold)}
+  .rankRow .rv span{font-family:'DM Mono',monospace;font-size:10.5px;color:var(--ink-faint)}
 
   .switchRow{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px}
   .switchRow span{font-size:14px;font-weight:600;color:var(--ink-dim)}
@@ -226,6 +242,7 @@
         <div id="pickList" class="pickList hidden"></div>
       </div>
       <div id="pickSel" class="pickSel hidden">
+        <img id="pickSelFoto" class="hidden" alt="">
         <span id="pickSelNome"></span>
         <button type="button" class="pickX" onclick="limparProduto()">×</button>
       </div>
@@ -301,6 +318,7 @@
       <div class="kpi"><div class="n" id="kContato">0%</div><div class="l">Com contato</div></div>
     </div>
     <div class="card"><div class="eyebrow">Por tipo de produto</div><div id="gCategoria"></div></div>
+    <div class="card"><div class="eyebrow">Modelos mais perdidos</div><div id="gModelo"></div></div>
     <div class="card"><div class="eyebrow">Por motivo</div><div id="gMotivo"></div></div>
     <div class="card"><div class="eyebrow">Numerações mais perdidas</div><div id="gNumeracao"></div></div>
     <div class="card"><div class="eyebrow">Por vendedora</div><div id="gVendedora"></div></div>
@@ -557,6 +575,47 @@ async function carregarCatalogo(){
 
 function normaliza(s){ return (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''); }
 
+/* ---------- fotos dos modelos (Central do Estoque \u00b7 ls_rep_fotos/loja_thumb) ---------- */
+let fotosThumb = {}; /* id do cat\u00e1logo -> { cor: miniatura } */
+
+async function carregarFotos(){
+  try{
+    if(usandoFirebase){
+      const s = await db.collection('ls_rep_fotos').doc('loja_thumb').get();
+      const d = s.data();
+      if(d && d.t && Object.keys(d.t).length){
+        fotosThumb = d.t;
+        try{ localStorage.setItem('lsvp_fotos', JSON.stringify(fotosThumb)); }catch(_){/* estourou a cota: segue s\u00f3 em mem\u00f3ria */}
+        refreshFotosUI();
+        return;
+      }
+    }
+    fotosThumb = JSON.parse(localStorage.getItem('lsvp_fotos')||'{}');
+  }catch(e){
+    console.warn('Fotos dos modelos indispon\u00edveis:', e);
+    try{ fotosThumb = JSON.parse(localStorage.getItem('lsvp_fotos')||'{}'); }catch(_){ fotosThumb = {}; }
+  }
+  refreshFotosUI();
+}
+/* as fotos chegam depois do primeiro render: atualiza o que j\u00e1 est\u00e1 na tela */
+function refreshFotosUI(){
+  atualizarFotoSel();
+  if(perfil==='Gest\u00e3o' && !$('view-gestao').classList.contains('hidden')) renderGestao();
+}
+function fotoDoProduto(id, cor){
+  const f = id!=null ? fotosThumb[String(id)] : null;
+  if(!f) return null;
+  if(cor){ const alvo=normaliza(cor); const k=Object.keys(f).find(c=>normaliza(c)===alvo); if(k) return f[k]; }
+  const ks = Object.keys(f);
+  return ks.length ? f[ks[0]] : null;
+}
+function atualizarFotoSel(){
+  const img = $('pickSelFoto'); if(!img) return;
+  const f = produtoSel ? fotoDoProduto(produtoSel.id, sel.cor) : null;
+  if(f) img.src = f;
+  img.classList.toggle('hidden', !f);
+}
+
 function categoriaDoNome(nome){
   const n = normaliza(nome);
   if(/bota/.test(n)) return 'Bota';
@@ -600,7 +659,8 @@ $('fModelo').addEventListener('input', e=>{
   if(!hits.length){ list.classList.add('hidden'); return; }
   list.innerHTML = hits.map(p=>{
     const dots = (p.cores||[]).slice(0,5).map(c=>`<span class="dot" style="background:${c.hex||'#888'}"></span>`).join('');
-    return `<div class="pickItem" data-id="${p.id}"><span>${p.nome}</span><span class="dots">${dots}</span></div>`;
+    const foto = fotoDoProduto(p.id);
+    return `<div class="pickItem" data-id="${p.id}">${foto?`<img src="${foto}" alt="">`:''}<span class="nm">${p.nome}</span><span class="dots">${dots}</span></div>`;
   }).join('');
   list.classList.remove('hidden');
   [...list.children].forEach(el=>el.onclick=()=>selecionarProduto(el.dataset.id));
@@ -627,6 +687,7 @@ function selecionarProduto(id){
   $('fModelo').value = produtoSel.nome;
   $('pickSelNome').textContent = '✓ '+produtoSel.nome+' — do catálogo';
   $('pickSel').classList.remove('hidden');
+  atualizarFotoSel();
   /* categoria aprendida: se alguém já categorizou este modelo, vem marcada */
   const cat = catConhecida(produtoSel.id, produtoSel.nome);
   sel.categoria = cat; /* null = "Sem categoria" até alguém definir */
@@ -640,6 +701,7 @@ function limparProduto(){
   produtoSel = null;
   $('fModelo').value = '';
   $('pickSel').classList.add('hidden');
+  atualizarFotoSel();
   aplicarProdutoNaUI();
   updateBlocos();
 }
@@ -659,7 +721,7 @@ function aplicarProdutoNaUI(){
       sel.cor = (sel.cor===c.nome)?null:c.nome;
       [...el.children].forEach(x=>x.classList.toggle('on', x===chip && sel.cor===c.nome));
       $('fCorOutra').classList.toggle('hidden', sel.cor!=='Outra');
-      if(produtoSel){ renderNumeracao(); sugerirValor(); } /* grade e preço podem variar por cor */
+      if(produtoSel){ renderNumeracao(); sugerirValor(); atualizarFotoSel(); } /* grade, preço e foto podem variar por cor */
     };
     el.appendChild(chip);
   });
@@ -1009,6 +1071,7 @@ function renderGestao(){
   barGroup('gVendedora', somaPor('vendedora'), valorTotal, fmtBRL);
   const nums = contaPor('numeracao'); const totN = Object.values(nums).reduce((a,b)=>a+b,0);
   barGroup('gNumeracao', nums, totN, v=>v+'×');
+  renderModelosPerdidos();
 
   /* filtros da lista */
   const fv=$('filVend').value, fc=$('filCat').value, fs=$('filStatus').value;
@@ -1016,6 +1079,34 @@ function renderGestao(){
   $('listGestao').innerHTML = lista.length
     ? lista.map(r=>cardRegistro(r,true)).join('')
     : '<div class="empty" style="padding:20px">Nenhum registro com esses filtros.</div>';
+}
+
+/* ranking de modelos: junta pelo produto do catálogo (registros "livres" agrupam pelo nome digitado) */
+function renderModelosPerdidos(){
+  const mapa = {};
+  registros.forEach(r=>{
+    const k = r.produtoId!=null ? 'p:'+r.produtoId : (r.modelo ? 'n:'+normaliza(r.modelo) : null);
+    if(!k) return;
+    const m = mapa[k] || (mapa[k]={nome:r.modelo||r.categoria||'—', pid:r.produtoId, livre:r.produtoId==null, n:0, valor:0, nums:{}});
+    m.n++; m.valor += r.valor||0;
+    if(r.numeracao) m.nums[r.numeracao]=(m.nums[r.numeracao]||0)+1;
+  });
+  const top = Object.values(mapa).sort((a,b)=>b.n-a.n || b.valor-a.valor).slice(0,12);
+  const max = top.length ? top[0].n : 0;
+  $('gModelo').innerHTML = top.length ? top.map(m=>{
+    const foto = m.pid!=null ? fotoDoProduto(m.pid) : null;
+    const numsTxt = Object.entries(m.nums).sort((a,b)=>b[1]-a[1]).slice(0,4)
+      .map(([n,q])=>'nº '+n+(q>1?' ×'+q:'')).join(' · ');
+    return `<div class="rankRow">
+      ${foto?`<img src="${foto}" alt="">`:`<div class="ph">${(m.nome||'?')[0].toUpperCase()}</div>`}
+      <div class="ri">
+        <div class="rn">${m.nome}${m.livre?'<span class="lv">LIVRE</span>':''}</div>
+        ${numsTxt?`<div class="rs">${numsTxt}</div>`:''}
+        <div class="track"><div class="fill" style="width:${max?Math.max(Math.round(m.n/max*100),4):0}%"></div></div>
+      </div>
+      <div class="rv"><b>${m.n}×</b><span>${fmtBRL(m.valor)}</span></div>
+    </div>`;
+  }).join('') : '<div class="empty" style="padding:14px">Sem dados no mês.</div>';
 }
 
 function renderAll(){ renderMeus(); if(perfil==='Gestão') renderGestao(); }
@@ -1049,6 +1140,7 @@ function boot(){
   aplicarProdutoNaUI();
   setModoModelo('sistema');
   carregarCatalogo();
+  carregarFotos();
   carregarMapa();
   carregarPrecosOficiais();
   $('secNumeracao').classList.add('hidden');
