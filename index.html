@@ -1061,7 +1061,11 @@ function coletarItem(){
   const valor = parseInt(soDigitos($('fValor').value)||'0',10)/100;
   if(!valor) return {erro:'Informe o valor estimado deste modelo.'};
   const foraGrade = (()=>{ if(!produtoSel || !numFinal) return false;
-    const g=new Set(); (produtoSel.cores||[]).forEach(c=>Object.keys(c.skus||{}).forEach(n=>g.add(String(n))));
+    /* com a cor escolhida, vale a grade DAQUELA cor: nº 42 que só existe no Preto
+       continua sendo grade a aumentar quando o cliente queria Café */
+    const corSel = (produtoSel.cores||[]).find(c=>c.nome===sel.cor && c.skus && Object.keys(c.skus).length);
+    const fonte = corSel ? [corSel] : (produtoSel.cores||[]);
+    const g=new Set(); fonte.forEach(c=>Object.keys(c.skus||{}).forEach(n=>g.add(String(n))));
     return !g.has(String(numFinal)); })();
   return {item:{
     categoria: catFinal,
