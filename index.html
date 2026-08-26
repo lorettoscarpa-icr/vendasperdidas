@@ -303,10 +303,6 @@
 
     <div class="card">
       <div class="eyebrow">O que o cliente queria</div>
-      <div id="blkCategoria">
-        <label class="f">Tipo de produto</label>
-        <div class="chips" id="chCategoria"></div>
-      </div>
       <label class="f">Modelo</label>
       <div class="pickWrap">
         <input type="text" id="fModelo" autocomplete="off" placeholder="Digite pra buscar o modelo no catálogo...">
@@ -740,17 +736,25 @@ function categoriaDoNome(nome){
   if(/mocassim|loafer|slipper|drive/.test(n)) return 'Mocassim / Loafer';
   if(/birken|sandalia|chinelo|slide|papete/.test(n)) return 'Sandália / Chinelo';
   if(/derby|social|oxford|monk/.test(n)) return 'Sapato Social';
+  if(/cinto/.test(n)) return 'Cinto';
+  if(/carteira/.test(n)) return 'Carteira';
   return 'Sapato Casual';
+}
+/* o tipo de produto agora é deduzido sozinho: primeiro pelo que a Gestão já
+   ensinou (mapa), depois pelo nome do modelo — a vendedora não escolhe nada */
+function categoriaAuto(){
+  const nome = produtoSel ? produtoSel.nome : $('fModelo').value.trim();
+  if(!nome) return null;
+  return catConhecida(produtoSel?produtoSel.id:null, nome) || categoriaDoNome(nome);
 }
 
 function updateBlocos(){
   /* os blocos aparecem quando há um produto do catálogo OU um nome digitado
      (modelo fora do catálogo vale como descrição livre, sem botão pra escolher) */
-  const mostrar = !!produtoSel || !!$('fModelo').value.trim() || !!sel.categoria;
-  $('blkCategoria').classList.toggle('hidden', !mostrar);
+  const mostrar = !!produtoSel || !!$('fModelo').value.trim();
   $('blkCor').classList.toggle('hidden', !mostrar);
   if(!mostrar) $('secNumeracao').classList.add('hidden');
-  else $('secNumeracao').classList.toggle('hidden', !(produtoSel || CAT_CALCADO.includes(sel.categoria)));
+  else $('secNumeracao').classList.toggle('hidden', !(produtoSel || CAT_CALCADO.includes(categoriaAuto()||'')));
 }
 
 $('fModelo').addEventListener('input', e=>{
@@ -773,14 +777,7 @@ $('fModelo').addEventListener('input', e=>{
   updateBlocos();
 });
 $('fModelo').addEventListener('change', ()=>{
-  if(produtoSel || sel.categoria) return;
-  const cat = catConhecida(null, $('fModelo').value);
-  if(cat){
-    sel.categoria = cat;
-    [...$('chCategoria').children].forEach(x=>x.classList.toggle('on', x.textContent===cat));
-    updateBlocos();
-  }
-  sugerirValor();
+  if(!produtoSel){ updateBlocos(); sugerirValor(); }
 });
 
 document.addEventListener('click', e=>{
@@ -830,10 +827,6 @@ function selecionarProduto(id){
   $('pickSelNome').textContent = '✓ '+produtoSel.nome+' — do catálogo';
   $('pickSel').classList.remove('hidden');
   atualizarFotoSel();
-  /* categoria aprendida: se alguém já categorizou este modelo, vem marcada */
-  const cat = catConhecida(produtoSel.id, produtoSel.nome);
-  sel.categoria = cat; /* null = "Sem categoria" até alguém definir */
-  [...$('chCategoria').children].forEach(x=>x.classList.toggle('on', !!cat && x.textContent===cat));
   aplicarProdutoNaUI();
   updateBlocos();
   sugerirValor();
@@ -908,7 +901,6 @@ function buildChips(elId, items, key){
     c.onclick = ()=>{
       sel[key] = (sel[key]===it) ? null : it;
       [...el.children].forEach(x=>x.classList.toggle('on', x.textContent===sel[key]));
-      if(key==='categoria') $('secNumeracao').classList.toggle('hidden', !CAT_CALCADO.includes(sel.categoria));
       if(key==='cor') $('fCorOutra').classList.toggle('hidden', sel.cor!=='Outra');
     };
     el.appendChild(c);
@@ -1012,8 +1004,6 @@ function editarRegistro(id){
   }else{
     $('fModelo').value = r.modelo || '';
   }
-  sel.categoria = (r.categoria && r.categoria!=='Sem categoria') ? r.categoria : null;
-  [...$('chCategoria').children].forEach(c=>c.classList.toggle('on', !!sel.categoria && c.textContent===sel.categoria));
   updateBlocos();
   if(r.numeracao!=null){
     const grade = gradeDoProduto();
@@ -1056,9 +1046,9 @@ function cancelarEdicao(){
 
 function coletarItem(){
   const modeloTxt = $('fModelo').value.trim();
-  if(!modeloTxt && !sel.categoria) return {erro:'Informe o modelo (do sistema ou livre) ou marque o tipo de produto.'};
-  const catFinal = sel.categoria || 'Sem categoria';
-  const ehCalcado = !!produtoSel || CAT_CALCADO.includes(sel.categoria);
+  if(!modeloTxt) return {erro:'Informe o modelo.'};
+  const catFinal = categoriaAuto() || 'Sem categoria';
+  const ehCalcado = !!produtoSel || CAT_CALCADO.includes(catFinal);
   let numFinal = sel.numeracao;
   if(ehCalcado){
     if(!numFinal) return {erro:'Marque a numeração do cliente.'};
@@ -1083,12 +1073,12 @@ function coletarItem(){
     cor: sel.cor==='Outra' ? ($('fCorOutra').value.trim()||'Outra') : (sel.cor||null),
     motivo: sel.motivo,
     valor,
-    _ensinarCat: sel.categoria||null, _pid: produtoSel?produtoSel.id:null, _nome: modeloTxt
+    _ensinarCat: (catFinal!=='Sem categoria'?catFinal:null), _pid: produtoSel?produtoSel.id:null, _nome: modeloTxt
   }};
 }
 
 function itemPreenchido(){
-  return !!($('fModelo').value.trim() || sel.categoria || sel.motivo || soDigitos($('fValor').value));
+  return !!($('fModelo').value.trim() || sel.motivo || soDigitos($('fValor').value));
 }
 
 function adicionarItem(){
@@ -1121,8 +1111,8 @@ function listarPendencias(){
   if(!sel.canal) faltas.push('Onde foi o atendimento');
   if(!itens.length || itemPreenchido()){
     const modeloTxt = $('fModelo').value.trim();
-    if(!modeloTxt && !sel.categoria) faltas.push('Modelo ou o tipo de produto');
-    const ehCalcado = !!produtoSel || CAT_CALCADO.includes(sel.categoria);
+    if(!modeloTxt) faltas.push('Modelo');
+    const ehCalcado = !!produtoSel || CAT_CALCADO.includes(categoriaAuto()||'');
     if(ehCalcado && (!sel.numeracao || (sel.numeracao==='Outro' && !soDigitos($('fNumOutra').value)))) faltas.push('Numeração do cliente');
     if(!sel.motivo) faltas.push('Motivo da venda não ter saído');
     if(!parseInt(soDigitos($('fValor').value)||'0',10)) faltas.push('Valor estimado do modelo');
@@ -1218,7 +1208,7 @@ async function salvar(){
 function limparItem(){
   valorAuto = false;
   ['fModelo','fCorOutra','fNumOutra','fValor'].forEach(id=>$(id).value='');
-  ['chCategoria','chNumeracao','chMotivo'].forEach(id=>[...$(id).children].forEach(c=>c.classList.remove('on')));
+  ['chNumeracao','chMotivo'].forEach(id=>[...$(id).children].forEach(c=>c.classList.remove('on')));
   Object.assign(sel,{categoria:null,numeracao:null,cor:null,motivo:null});
   limparProduto();
   $('pickList').classList.add('hidden'); $('livreHint').classList.add('hidden');
@@ -1558,7 +1548,6 @@ function boot(){
   $('localBanner').classList.toggle('hidden', usandoFirebase);
 
   buildChips('chCanal', CANAIS, 'canal');
-  buildChips('chCategoria', CATEGORIAS, 'categoria');
   buildChips('chMotivo', MOTIVOS, 'motivo');
   aplicarProdutoNaUI();
   updateBlocos();
