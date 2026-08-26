@@ -497,6 +497,22 @@ function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(
 function hojeISO(){ const d=new Date(); return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10); }
 function fmtData(iso){ if(!iso) return ''; const [a,m,d]=iso.split('-'); return `${d}/${m}/${a}`; }
 function soDigitos(s){ return (s||'').replace(/\D/g,''); }
+/* Todas as centrais dividem o MESMO localStorage (mesmo domínio do GitHub Pages),
+   e as outras guardam foto em base64 — a cota de ~5MB vive cheia. Gravar aqui
+   nunca pode derrubar o app: se estourar, solta os caches pesados (que são só
+   conveniência offline) e tenta de novo; se ainda assim não der, segue sem guardar. */
+function lsSet(chave, valor){
+  try{ localStorage.setItem(chave, valor); return true; }
+  catch(e){
+    /* solta um cache por vez, do mais pesado pro mais útil, e para assim que couber */
+    for(const c of ['lsvp_fotos','lsvp_precos_oficiais','lsvp_mapa','lsvp_catalogo']){
+      if(c===chave) continue;
+      try{ localStorage.removeItem(c); localStorage.setItem(chave, valor); return true; }catch(_){ }
+    }
+    console.warn('localStorage cheio — não deu pra guardar', chave);
+    return false;
+  }
+}
 function diasDesde(iso){ if(!iso) return 0; const t=new Date(String(iso).slice(0,10)+'T00:00:00').getTime(); return Math.floor((Date.now()-t)/864e5); }
 function fmtZap(v){
   const d = soDigitos(v).slice(0,11);
@@ -563,7 +579,7 @@ async function carregarPrecosOficiais(){
       }));
       if(Object.keys(mapa).length){
         precosOficiais = mapa;
-        localStorage.setItem('lsvp_precos_oficiais', JSON.stringify(mapa));
+        lsSet('lsvp_precos_oficiais', JSON.stringify(mapa));
         return;
       }
     }
@@ -632,7 +648,7 @@ async function importarKigi(file){
     if(usandoFirebase){
       await db.collection(COL).doc('_categorias').set({porProduto:mapaCat.porProduto, porNome:mapaCat.porNome, precos:mapaCat.precos, precosKigi:mapa, ts:Date.now()});
     }else{
-      localStorage.setItem('lsvp_mapa', JSON.stringify(mapaCat));
+      lsSet('lsvp_mapa', JSON.stringify(mapaCat));
     }
     toast('✓ Preços de '+n+' modelos importados do Kigi');
   }catch(e){
@@ -664,7 +680,7 @@ async function salvarMapa(produtoId, nome, cat, valor){
   if(!mudou) return;
   try{
     if(usandoFirebase) await db.collection(COL).doc('_categorias').set({porProduto:mapaCat.porProduto, porNome:mapaCat.porNome, precos:mapaCat.precos, precosKigi:mapaCat.precosKigi||{}, ts:Date.now()});
-    else localStorage.setItem('lsvp_mapa', JSON.stringify(mapaCat));
+    else lsSet('lsvp_mapa', JSON.stringify(mapaCat));
   }catch(e){ console.warn(e); }
 }
 
@@ -675,7 +691,7 @@ async function carregarCatalogo(){
       const data = snap.data();
       if(data && Array.isArray(data.catalogo) && data.catalogo.length){
         catalogo = data.catalogo;
-        localStorage.setItem('lsvp_catalogo', JSON.stringify(catalogo));
+        lsSet('lsvp_catalogo', JSON.stringify(catalogo));
         return;
       }
     }
@@ -698,7 +714,7 @@ async function carregarFotos(){
       const d = s.data();
       if(d && d.t && Object.keys(d.t).length){
         fotosThumb = d.t;
-        try{ localStorage.setItem('lsvp_fotos', JSON.stringify(fotosThumb)); }catch(_){/* estourou a cota: segue s\u00f3 em mem\u00f3ria */}
+        lsSet('lsvp_fotos', JSON.stringify(fotosThumb)); /* n\u00e3o coube? segue s\u00f3 em mem\u00f3ria */
         refreshFotosUI();
         return;
       }
@@ -930,7 +946,7 @@ function entrar(p){
     p = EMAIL_PERFIL[emailLogado];
   }
   perfil = p;
-  localStorage.setItem('lsvp_perfil', p);
+  lsSet('lsvp_perfil', p);
   boot();
 }
 function trocarPerfil(){
@@ -962,7 +978,7 @@ async function salvarDoc(doc){
   else{
     const all = JSON.parse(localStorage.getItem('lsvp_registros')||'[]');
     all.push({id:uid(), ...doc});
-    localStorage.setItem('lsvp_registros', JSON.stringify(all));
+    if(!lsSet('lsvp_registros', JSON.stringify(all))) throw new Error('armazenamento cheio');
     assinarMes();
   }
 }
@@ -972,7 +988,7 @@ async function atualizarDoc(id, patch){
   else{
     const all = JSON.parse(localStorage.getItem('lsvp_registros')||'[]');
     const i = all.findIndex(r=>r.id===id);
-    if(i>-1){ all[i] = {...all[i], ...patch}; localStorage.setItem('lsvp_registros', JSON.stringify(all)); }
+    if(i>-1){ all[i] = {...all[i], ...patch}; lsSet('lsvp_registros', JSON.stringify(all)); }
     assinarMes();
   }
 }
@@ -982,7 +998,7 @@ async function excluirDoc(id){
   if(usandoFirebase){ await db.collection(COL).doc(id).delete(); }
   else{
     const all = JSON.parse(localStorage.getItem('lsvp_registros')||'[]').filter(r=>r.id!==id);
-    localStorage.setItem('lsvp_registros', JSON.stringify(all));
+    lsSet('lsvp_registros', JSON.stringify(all));
     assinarMes();
   }
   toast('Registro excluído');
