@@ -426,11 +426,13 @@
     <div class="card"><div class="eyebrow">Por motivo</div><div id="gMotivo"></div></div>
     <div class="card"><div class="eyebrow">Numerações mais perdidas</div><div id="gNumeracao"></div></div>
     <div class="card"><div class="eyebrow">Por vendedora</div><div id="gVendedora"></div></div>
+    <div class="card hidden" id="cardFornecedor"><div class="eyebrow">Por fornecedor</div><div id="gFornecedor"></div></div>
     <div class="card">
       <div class="eyebrow">Registros do mês</div>
       <div class="filterRow">
         <input type="text" id="buscaGestao" placeholder="Buscar cliente, modelo ou nº..." oninput="renderGestao()">
         <select id="filVend" onchange="renderGestao()"><option value="">Todas as vendedoras</option></select>
+        <select id="filForn" class="hidden" onchange="renderGestao()"><option value="">Todos os fornecedores</option></select>
         <select id="filCat" onchange="renderGestao()"><option value="">Todos os produtos</option></select>
         <select id="filStatus" onchange="renderGestao()">
           <option value="">Todos os status</option>
@@ -1323,9 +1325,10 @@ function cardRegistro(r, comAcoes){
     ? (r.avisadoEm ? '📣 Avisado '+(d=>d===0?'hoje':'há '+d+(d===1?' dia':' dias'))(diasDesde(r.avisadoEm))+' — aguardando resposta'
                    : '📦 Chegou — chamar o cliente')
     : '';
+  const forn = (perfil==='Gestão') ? fornecedorDe(r) : null;
   return `<div class="reg${chegou?' chegou':''}${res?' res':''}">
     <div class="top"><div class="prod">${r.categoria}${mod}</div><div class="valor">${fmtBRL2(r.valor)}</div></div>
-    <div class="meta">${fmtData(r.dataAtendimento)} · ${r.vendedora} · ${r.canal}${num}${cor}${cli}</div>
+    <div class="meta">${fmtData(r.dataAtendimento)} · ${r.vendedora} · ${r.canal}${num}${cor}${forn?' · 🏭 '+forn:''}${cli}</div>
     <span class="motivo ${res?'res':(chegou?'cheg':'')}">${res?'✓ Resolvido':(chegou?tagChegou:r.motivo)}</span>
     ${r.obs?`<div class="obs">“${r.obs}”</div>`:''}
     ${acoes}
@@ -1398,6 +1401,20 @@ function renderGestao(){
   barGroup('gCategoria', somaPor('categoria'), valorTotal, fmtBRL);
   barGroup('gMotivo', somaPor('motivo'), valorTotal, fmtBRL);
   barGroup('gVendedora', somaPor('vendedora'), valorTotal, fmtBRL);
+
+  /* fornecedor: vem da configuração de Reposição da Central do Estoque, pelo nome do modelo */
+  const forns = [...new Set(registros.map(r=>fornecedorDe(r)).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  const temForn = forns.length>0;
+  $('cardFornecedor').classList.toggle('hidden', !temForn);
+  $('filForn').classList.toggle('hidden', !temForn);
+  if(temForn){
+    const somaForn = registros.reduce((m,r)=>{ const k=fornecedorDe(r)||'Sem fornecedor'; m[k]=(m[k]||0)+(r.valor||0); return m; },{});
+    barGroup('gFornecedor', somaForn, valorTotal, fmtBRL);
+    const ff=$('filForn'), atual=ff.value;
+    ff.innerHTML = '<option value="">Todos os fornecedores</option>'
+      + forns.map(f=>`<option${f===atual?' selected':''}>${f}</option>`).join('')
+      + (registros.some(r=>!fornecedorDe(r))?`<option value="__sem"${atual==='__sem'?' selected':''}>Sem fornecedor</option>`:'');
+  }
   const nums = contaPor('numeracao'); const totN = Object.values(nums).reduce((a,b)=>a+b,0);
   barGroup('gNumeracao', nums, totN, v=>v+'×');
   renderModelosPerdidos();
@@ -1406,9 +1423,10 @@ function renderGestao(){
   if(!historico && !_histCarregando) carregarHistorico(); /* alimenta o histórico e a avaliação */
 
   /* filtros da lista + busca rápida (cliente, modelo, nº — como nas Encomendas) */
-  const fv=$('filVend').value, fc=$('filCat').value, fs=$('filStatus').value;
+  const fv=$('filVend').value, fc=$('filCat').value, fs=$('filStatus').value, fFor=$('filForn').value;
   const q = normaliza($('buscaGestao').value.trim());
   const lista = registros.filter(r=>(!fv||r.vendedora===fv)&&(!fc||r.categoria===fc)&&(!fs||r.status===fs)
+    &&(!fFor || (fFor==='__sem' ? !fornecedorDe(r) : fornecedorDe(r)===fFor))
     &&(!q || normaliza([r.clienteNome,r.modelo,r.categoria,r.numeracao,r.vendedora,r.cor].filter(Boolean).join(' ')).includes(q)));
   $('listGestao').innerHTML = lista.length
     ? lista.map(r=>cardRegistro(r,true)).join('')
@@ -1477,16 +1495,27 @@ function renderModelosPerdidos(){
 /* ---------- reposição detectada: cruza pendentes com o estoque importado ---------- */
 /* ls_rep_cfg/loja.estoque = {códigoDaEtiqueta: quantidade} (importado do Kigi na
    Central do Estoque). O catálogo dá o código por modelo/cor/numeração. */
-let estoqueRep = null;
+let estoqueRep = null, cfgRep = null, fornRep = null;
 async function carregarEstoqueRep(){
   try{
     if(usandoFirebase){
       const s = await db.collection('ls_rep_cfg').doc('loja').get();
       const d = s.data();
       estoqueRep = (d && d.estoque) || {};
+      cfgRep     = (d && d.cfg)     || {}; /* {chaveDoModelo:{fornId,...}} */
+      fornRep    = (d && d.forn)    || {}; /* {fornId:{nome,apelido,...}} */
     }
   }catch(e){ console.warn('Estoque da reposição indisponível:', e); }
   renderChegadas();
+  if(perfil==='Gestão') renderGestao();
+}
+/* mesma normalização de chave da Central do Estoque (normKey) */
+function normKeyRep(s){ return (s||'').normalize('NFKD').replace(/[̀-ͯ]/g,'').replace(/[.\s]+/g,' ').trim().toLowerCase(); }
+function fornecedorDe(r){
+  if(!cfgRep || !fornRep || !r || !r.modelo) return null;
+  const c = cfgRep[normKeyRep(r.modelo)];
+  const f = (c && c.fornId) ? fornRep[c.fornId] : null;
+  return f ? (f.apelido || f.nome || null) : null;
 }
 function qtdEstoque(r){
   if(!estoqueRep || r.produtoId==null || !r.numeracao) return 0;
@@ -1577,9 +1606,9 @@ function renderAll(){ renderMeus(); if(perfil==='Gestão') renderGestao(); }
 /* ---------- CSV ---------- */
 function exportCSV(){
   if(!registros.length) return toast('Sem registros neste mês');
-  const head = ['Data','Vendedora','Canal','Categoria','Modelo','Numeração','Cor','Motivo','Valor','Cliente','WhatsApp','Avisar','Status','Observações'];
+  const head = ['Data','Vendedora','Canal','Categoria','Modelo','Fornecedor','Numeração','Cor','Motivo','Valor','Cliente','WhatsApp','Avisar','Status','Observações'];
   const rows = registros.map(r=>[
-    fmtData(r.dataAtendimento), r.vendedora, r.canal, r.categoria, r.modelo||'', r.numeracao||'', r.cor||'',
+    fmtData(r.dataAtendimento), r.vendedora, r.canal, r.categoria, r.modelo||'', fornecedorDe(r)||'', r.numeracao||'', r.cor||'',
     r.motivo, (r.valor||0).toFixed(2).replace('.',','), r.clienteNome||'', r.clienteZap||'', r.avisar?'Sim':'Não', r.status, (r.obs||'').replace(/[\r\n;]+/g,' ')
   ]);
   const csv = '\uFEFF'+[head,...rows].map(l=>l.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(';')).join('\n');
