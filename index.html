@@ -277,6 +277,18 @@
   #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
   #localBanner{background:var(--warn-bg);border:1px solid var(--warn);color:#f3d8a8;border-radius:11px;padding:11px 16px;font-size:13px;margin-bottom:14px;text-align:center}
 
+  /* ---------- aba Chegaram + popup ---------- */
+  .tabBadge{display:inline-block;min-width:19px;padding:1px 6px;margin-left:5px;border-radius:999px;background:var(--danger);color:#fff;font-size:11px;font-weight:700;vertical-align:1px}
+  .tab.on .tabBadge{background:var(--bg);color:var(--gold-claro)}
+  .modalOv{position:fixed;inset:0;background:rgba(18,24,8,.8);z-index:300;display:flex;align-items:center;justify-content:center;padding:20px}
+  .modalOv.hidden{display:none}
+  .modalCard{background:linear-gradient(160deg,#324626 0%,#283d1a 100%);border:1px solid var(--line);border-radius:18px;padding:24px 22px;max-width:400px;width:100%;box-shadow:0 30px 70px -30px #000}
+  .mvTxt{font-size:14.5px;line-height:1.6;color:var(--ink-dim);margin-bottom:18px}
+  .mvTxt b{color:var(--ink)}
+  .mvZap{display:block;text-align:center;text-decoration:none;background:linear-gradient(135deg,#7fae6b,#5f9152);border-color:#5f9152;color:#16210f}
+  .mvZap:hover{filter:brightness(1.06);background:linear-gradient(135deg,#7fae6b,#5f9152);color:#16210f}
+  .mvFechar{width:100%;margin-top:10px}
+
   @media (max-width:420px){
     .kpis{grid-template-columns:1fr 1fr}
     .kpi:first-child{grid-column:1 / -1}
@@ -314,6 +326,7 @@
   <div class="tabs" id="tabsBar">
     <button class="tab on" data-view="registrar" onclick="goTab('registrar')">＋ Registrar</button>
     <button class="tab" data-view="meus" onclick="goTab('meus')">Meus registros</button>
+    <button class="tab" id="tabChegaram" data-view="chegaram" onclick="goTab('chegaram')">📦 Chegaram <span class="tabBadge hidden" id="badgeChegaram"></span></button>
     <button class="tab hidden" id="tabGestao" data-view="gestao" onclick="goTab('gestao')">Gestão</button>
   </div>
 
@@ -403,6 +416,11 @@
     <div id="listMeus"></div>
   </div>
 
+  <!-- ===== CHEGARAM ===== -->
+  <div id="view-chegaram" class="hidden">
+    <div id="listChegaram"></div>
+  </div>
+
   <!-- ===== GESTÃO ===== -->
   <div id="view-gestao" class="hidden">
     <div class="monthRow">
@@ -447,6 +465,16 @@
       </div>
       <div id="listGestao"></div>
     </div>
+  </div>
+</div>
+
+<!-- ===== POPUP: avisar a vendedora que o modelo chegou ===== -->
+<div id="modalAviso" class="modalOv hidden" onclick="if(event.target===this)fecharAviso()">
+  <div class="modalCard">
+    <div class="eyebrow">📦 Modelo chegou</div>
+    <div id="mvTxt" class="mvTxt"></div>
+    <a id="mvZap" class="saveBtn mvZap" target="_blank" rel="noopener" onclick="avisoEnviado()">Avisar no WhatsApp</a>
+    <button class="aBtn mvFechar" onclick="fecharAviso()">Fechar — aviso já aparece pra ela no painel</button>
   </div>
 </div>
 
@@ -1020,6 +1048,7 @@ async function salvarDoc(doc){
 }
 async function atualizarDoc(id, patch){
   historico = null;
+  if(!usandoFirebase) setTimeout(assinarChegados, 0); /* modo local: refaz a lista de chegados */
   if(usandoFirebase){ await db.collection(COL).doc(id).update(patch); }
   else{
     const all = JSON.parse(localStorage.getItem('lsvp_registros')||'[]');
@@ -1290,8 +1319,9 @@ function limparForm(){
 /* ---------- navegação ---------- */
 function goTab(v){
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('on', t.dataset.view===v));
-  ['registrar','meus','gestao'].forEach(x=>$('view-'+x).classList.toggle('hidden', x!==v));
+  ['registrar','meus','chegaram','gestao'].forEach(x=>$('view-'+x).classList.toggle('hidden', x!==v));
   document.querySelector('.wrap#appView').classList.toggle('wide', v==='gestao');
+  if(v==='chegaram') renderChegaram();
 }
 function setMes(m){
   if(!m) return;
@@ -1317,7 +1347,7 @@ function cardRegistro(r, comAcoes){
       ? `<button class="aBtn" onclick="atualizarDoc('${r.id}',{status:'pendente',resolvidoEm:null})">Reabrir</button>`
       : `<button class="aBtn" onclick="atualizarDoc('${r.id}',{status:'resolvido',resolvidoEm:new Date().toISOString()});toast('Marcado como resolvido')">✓ Resolvido</button>`;
     const btnChegou = (perfil==='Gestão' && r.status==='pendente')
-      ? `<button class="aBtn" onclick="atualizarDoc('${r.id}',{status:'chegou',chegouEm:new Date().toISOString()});toast('Avisado — vai aparecer pra vendedora chamar o cliente')">📦 Chegou</button>` : '';
+      ? `<button class="aBtn" onclick="marcarChegou('${r.id}')">📦 Chegou</button>` : '';
     const editar = (perfil==='Gestão' || (r.vendedora===perfil && r.status==='pendente'))
       ? `<button class="aBtn" onclick="editarRegistro('${r.id}')">Editar</button>` : '';
     const del = perfil==='Gestão' ? `<button class="aBtn del" onclick="excluirDoc('${r.id}')">Excluir</button>` : '';
@@ -1566,7 +1596,7 @@ function renderChegadas(){
         <div class="rn">${r.modelo||r.categoria} — nº ${r.numeracao}${r.cor?' · '+r.cor:''}</div>
         <div class="rs">${r.clienteNome||'cliente'} · ${r.vendedora} · ${fmtData(r.dataAtendimento)} · <b style="color:var(--ok)">${q} un no estoque</b></div>
       </div>
-      <button class="aBtn" onclick="atualizarDoc('${r.id}',{status:'chegou',chegouEm:new Date().toISOString()});toast('Marcado — a vendedora vai ver o aviso')">📦 Marcar chegou</button>
+      <button class="aBtn" onclick="marcarChegou('${r.id}')">📦 Marcar chegou</button>
     </div>`;
   }).join('');
 }
@@ -1619,7 +1649,78 @@ function renderAvaliacao(){
     : '<div class="empty" style="padding:14px">Sem alertas por enquanto — eles aparecem sozinhos quando os registros criam padrão: numeração pedida fora da grade, modelo esgotado que segue procurado, cor em falta…</div>';
 }
 
-function renderAll(){ renderMeus(); if(perfil==='Gestão') renderGestao(); }
+/* ---------- aba Chegaram: todo mundo que já chegou, de qualquer mês ---------- */
+let chegados = [], unsubCheg = null;
+
+function assinarChegados(){
+  const aplicar = lista=>{
+    chegados = lista.sort((a,b)=>String(b.chegouEm||'').localeCompare(String(a.chegouEm||'')));
+    renderChegaram();
+  };
+  if(usandoFirebase){
+    if(unsubCheg){ unsubCheg(); unsubCheg=null; }
+    unsubCheg = db.collection(COL).where('status','==','chegou')
+      .onSnapshot(s=>aplicar(s.docs.map(d=>({id:d.id, ...d.data()}))),
+                  e=>console.warn('Chegados indisponíveis:', e));
+  }else{
+    aplicar(JSON.parse(localStorage.getItem('lsvp_registros')||'[]').filter(r=>r.status==='chegou'));
+  }
+}
+const meusChegados = ()=> perfil==='Gestão' ? chegados : chegados.filter(r=>r.vendedora===perfil);
+
+function renderChegaram(){
+  const lista = meusChegados();
+  /* badge na aba: só o que ainda não foi avisado é urgente */
+  const aAvisar = lista.filter(r=>!r.avisadoEm).length;
+  const b = $('badgeChegaram');
+  b.textContent = aAvisar || '';
+  b.classList.toggle('hidden', !aAvisar);
+  const host = $('listChegaram'); if(!host) return;
+  if(!lista.length){
+    host.innerHTML = `<div class="empty"><b>Nada esperando no momento</b>Quando um modelo de venda perdida chegar na loja, ele aparece aqui pra você chamar o cliente.</div>`;
+    return;
+  }
+  const novos = lista.filter(r=>!r.avisadoEm), avisados = lista.filter(r=>r.avisadoEm);
+  let html = '';
+  if(novos.length) html += `<div class="chegouBanner">📦 ${novos.length===1?'1 cliente esperando o seu aviso':novos.length+' clientes esperando o seu aviso'} — toque em “📣 Avisar que chegou”.</div>`;
+  html += novos.map(r=>cardRegistro(r,true)).join('');
+  if(avisados.length){
+    html += `<div class="eyebrow" style="margin:18px 0 10px">Já avisados — aguardando resposta</div>`;
+    html += avisados.map(r=>cardRegistro(r,true)).join('');
+  }
+  host.innerHTML = html;
+}
+
+/* ---------- popup: avisar a vendedora que o modelo dela chegou ---------- */
+const TEL_VENDEDORA = {
+  'Jhennifer':'5562981688990', 'Ialey':'5562981728039',
+  'Michelly':'5562981940350', 'Natália':'5562982001112'
+};
+let avisoPendente = null;
+
+async function marcarChegou(id){
+  const r = registros.find(x=>x.id===id) || chegados.find(x=>x.id===id);
+  await atualizarDoc(id, {status:'chegou', chegouEm:new Date().toISOString()});
+  if(!r) return toast('Marcado como chegou');
+  avisoPendente = r;
+  const det = (r.numeracao?' nº '+r.numeracao:'') + (r.cor&&r.cor!=='Outra'?' · '+r.cor:'');
+  $('mvTxt').innerHTML = `Chegou o <b>${r.modelo||r.categoria}</b>${det}.<br>`
+    + `Avise a <b>${r.vendedora}</b> pra ela chamar o cliente <b>${r.clienteNome||''}</b>.`;
+  const tel = TEL_VENDEDORA[r.vendedora];
+  const msg = `Oi ${r.vendedora}! Chegou o ${r.modelo||r.categoria}${det} — aquele que o cliente ${r.clienteNome||''} procurou e não tinha.\n\n`
+    + `Abre a aba Vendas Perdidas (📦 Chegaram) e chama ele pelo WhatsApp 🤎`;
+  const a = $('mvZap');
+  if(tel){ a.href = 'https://wa.me/'+tel+'?text='+encodeURIComponent(msg); a.classList.remove('hidden'); }
+  else { a.classList.add('hidden'); }
+  $('modalAviso').classList.remove('hidden');
+}
+function avisoEnviado(){
+  toast('✓ '+(avisoPendente?avisoPendente.vendedora:'Vendedora')+' avisada');
+  setTimeout(fecharAviso, 400);
+}
+function fecharAviso(){ $('modalAviso').classList.add('hidden'); avisoPendente = null; }
+
+function renderAll(){ renderMeus(); renderChegaram(); if(perfil==='Gestão') renderGestao(); }
 
 /* ---------- CSV ---------- */
 function exportCSV(){
@@ -1664,6 +1765,7 @@ function boot(){
 
   goTab(perfil==='Gestão' ? 'gestao' : 'registrar');
   assinarMes();
+  assinarChegados(); /* a aba Chegaram vale pra qualquer mês */
 }
 
 buildLogin();
