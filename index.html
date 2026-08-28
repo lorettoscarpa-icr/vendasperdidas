@@ -396,6 +396,10 @@
       <input type="month" id="mesMeus" onchange="setMes(this.value)">
       <span class="count" id="countMeus"></span>
     </div>
+    <div class="filterRow hidden" id="filtrosMeus">
+      <select id="filVendMeus" onchange="renderMeus()"><option value="">Todas as vendedoras</option></select>
+      <select id="filFornMeus" onchange="renderMeus()"><option value="">Todos os fornecedores</option></select>
+    </div>
     <div id="listMeus"></div>
   </div>
 
@@ -1365,7 +1369,20 @@ async function definirCategoria(id, cat){
 }
 
 function renderMeus(){
-  const meus = perfil==='Gestão' ? registros : registros.filter(r=>r.vendedora===perfil);
+  const ehGestor = perfil==='Gestão';
+  $('filtrosMeus').classList.toggle('hidden', !ehGestor);
+  let meus = ehGestor ? registros : registros.filter(r=>r.vendedora===perfil);
+  if(ehGestor){
+    const fv = $('filVendMeus');
+    if(fv.options.length===1) VENDEDORAS.forEach(v=>fv.add(new Option(v,v)));
+    const ff = $('filFornMeus'), atual = ff.value;
+    const forns = [...new Set(registros.map(r=>fornecedorDe(r)).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+    ff.innerHTML = '<option value="">Todos os fornecedores</option>'
+      + forns.map(f=>`<option${f===atual?' selected':''}>${f}</option>`).join('')
+      + `<option value="__sem"${atual==='__sem'?' selected':''}>Sem fornecedor</option>`;
+    const v = fv.value, f = ff.value;
+    meus = meus.filter(r=>(!v||r.vendedora===v)&&(!f||(f==='__sem' ? !fornecedorDe(r) : fornecedorDe(r)===f)));
+  }
   $('countMeus').textContent = meus.length+' registro'+(meus.length===1?'':'s');
   const chegados = meus.filter(r=>r.status==='chegou');
   const novos = chegados.filter(r=>!r.avisadoEm);
@@ -1406,15 +1423,16 @@ function renderGestao(){
   const forns = [...new Set(registros.map(r=>fornecedorDe(r)).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
   const temForn = forns.length>0;
   $('cardFornecedor').classList.toggle('hidden', !temForn);
-  $('filForn').classList.toggle('hidden', !temForn);
   if(temForn){
     const somaForn = registros.reduce((m,r)=>{ const k=fornecedorDe(r)||'Sem fornecedor'; m[k]=(m[k]||0)+(r.valor||0); return m; },{});
     barGroup('gFornecedor', somaForn, valorTotal, fmtBRL);
-    const ff=$('filForn'), atual=ff.value;
-    ff.innerHTML = '<option value="">Todos os fornecedores</option>'
-      + forns.map(f=>`<option${f===atual?' selected':''}>${f}</option>`).join('')
-      + (registros.some(r=>!fornecedorDe(r))?`<option value="__sem"${atual==='__sem'?' selected':''}>Sem fornecedor</option>`:'');
   }
+  /* o filtro fica sempre à mão, mesmo sem fábrica vinculada ainda */
+  const ff=$('filForn'), atual=ff.value;
+  ff.classList.remove('hidden');
+  ff.innerHTML = '<option value="">Todos os fornecedores</option>'
+    + forns.map(f=>`<option${f===atual?' selected':''}>${f}</option>`).join('')
+    + `<option value="__sem"${atual==='__sem'?' selected':''}>Sem fornecedor</option>`;
   const nums = contaPor('numeracao'); const totN = Object.values(nums).reduce((a,b)=>a+b,0);
   barGroup('gNumeracao', nums, totN, v=>v+'×');
   renderModelosPerdidos();
