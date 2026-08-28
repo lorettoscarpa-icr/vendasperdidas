@@ -1708,7 +1708,7 @@ async function marcarChegou(id){
     + `Avise a <b>${r.vendedora}</b> pra ela chamar o cliente <b>${r.clienteNome||''}</b>.`;
   const tel = TEL_VENDEDORA[r.vendedora];
   const msg = `Oi ${r.vendedora}! Chegou o ${r.modelo||r.categoria}${det} — aquele que o cliente ${r.clienteNome||''} procurou e não tinha.\n\n`
-    + `Abre a aba Vendas Perdidas (📦 Chegaram) e chama ele pelo WhatsApp 🤎`;
+    + `Abre a aba Vendas Perdidas (📦 Chegaram) e chama ele pelo WhatsApp`;
   const a = $('mvZap');
   if(tel){ a.href = 'https://wa.me/'+tel+'?text='+encodeURIComponent(msg); a.classList.remove('hidden'); }
   else { a.classList.add('hidden'); }
