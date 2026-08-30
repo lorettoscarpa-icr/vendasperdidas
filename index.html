@@ -1413,7 +1413,7 @@ function renderMeus(){
     const fv = $('filVendMeus');
     if(fv.options.length===1) VENDEDORAS.forEach(v=>fv.add(new Option(v,v)));
     const ff = $('filFornMeus'), atual = ff.value;
-    const forns = [...new Set(registros.map(r=>fornecedorDe(r)).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+    const forns = todosFornecedores();
     ff.innerHTML = '<option value="">Todos os fornecedores</option>'
       + forns.map(f=>`<option${f===atual?' selected':''}>${f}</option>`).join('')
       + `<option value="__sem"${atual==='__sem'?' selected':''}>Sem fornecedor</option>`;
@@ -1457,8 +1457,8 @@ function renderGestao(){
   barGroup('gVendedora', somaPor('vendedora'), valorTotal, fmtBRL);
 
   /* fornecedor: vem da configuração de Reposição da Central do Estoque, pelo nome do modelo */
-  const forns = [...new Set(registros.map(r=>fornecedorDe(r)).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
-  const temForn = forns.length>0;
+  const forns = todosFornecedores();
+  const temForn = registros.some(r=>fornecedorDe(r)); /* gráfico só com dados do mês */
   $('cardFornecedor').classList.toggle('hidden', !temForn);
   if(temForn){
     const somaForn = registros.reduce((m,r)=>{ const k=fornecedorDe(r)||'Sem fornecedor'; m[k]=(m[k]||0)+(r.valor||0); return m; },{});
@@ -1566,11 +1566,45 @@ async function carregarEstoqueRep(){
 }
 /* mesma normalização de chave da Central do Estoque (normKey) */
 function normKeyRep(s){ return (s||'').normalize('NFKD').replace(/[̀-ͯ]/g,'').replace(/[.\s]+/g,' ').trim().toLowerCase(); }
+/* modelo -> fábrica pelo repositório da Central do Estoque (loretto_repo_config,
+   mesma origem). Só vale quando UMA fábrica tem aquele modelo: há modelo que
+   duas fábricas fazem (Derby Social é da Tarragona e da Manutt), e chutar
+   atribuiria venda perdida ao fornecedor errado. */
+let _repoMap = undefined;
+function repoFabricaPorModelo(){
+  if(_repoMap !== undefined) return _repoMap;
+  _repoMap = {};
+  try{
+    const repo = JSON.parse(localStorage.getItem('loretto_repo_config')||'null');
+    if(repo){
+      const conta = {};
+      Object.keys(repo).forEach(fk=>{
+        const nome = (repo[fk]||{}).nome || fk;
+        Object.keys((repo[fk]||{}).modelos||{}).forEach(mk=>{
+          const chave = normKeyRep(((repo[fk].modelos[mk]||{}).nome) || mk);
+          (conta[chave] = conta[chave] || new Set()).add(nome);
+        });
+      });
+      Object.keys(conta).forEach(k=>{ if(conta[k].size===1) _repoMap[k] = [...conta[k]][0]; });
+    }
+  }catch(e){ console.warn('Repositório de fábricas indisponível:', e); }
+  return _repoMap;
+}
 function fornecedorDe(r){
-  if(!cfgRep || !fornRep || !r || !r.modelo) return null;
-  const c = cfgRep[normKeyRep(r.modelo)];
-  const f = (c && c.fornId) ? fornRep[c.fornId] : null;
-  return f ? (f.apelido || f.nome || null) : null;
+  if(!r || !r.modelo) return null;
+  const chave = normKeyRep(r.modelo);
+  const c = cfgRep ? cfgRep[chave] : null;
+  const f = (c && c.fornId && fornRep) ? fornRep[c.fornId] : null;
+  if(f) return f.apelido || f.nome || null;
+  return repoFabricaPorModelo()[chave] || null; /* sem vínculo na Reposição */
+}
+/* TODAS as fábricas cadastradas, apareçam ou não em venda perdida */
+function todosFornecedores(){
+  const nomes = new Set();
+  Object.values(fornRep||{}).forEach(f=>{ if(f && !f.off) nomes.add(f.apelido||f.nome); });
+  Object.values(repoFabricaPorModelo()).forEach(n=>nomes.add(n));
+  (abertos||[]).concat(registros||[]).forEach(r=>{ const n=fornecedorDe(r); if(n) nomes.add(n); });
+  return [...nomes].filter(Boolean).sort((a,b)=>a.localeCompare(b));
 }
 function qtdEstoque(r){
   if(!estoqueRep || r.produtoId==null || !r.numeracao) return 0;
