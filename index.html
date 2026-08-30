@@ -295,9 +295,51 @@
     .barRow .bl{width:92px;font-size:11.5px}
   }
   @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+  /* o que o aviso da Central apontou pisca uma vez: sem isso a pessoa cai na tela certa
+     e continua procurando, que era exatamente a queixa */
+  @keyframes centralAchei{0%{box-shadow:0 0 0 0 rgba(201,169,80,.5)}100%{box-shadow:0 0 0 14px rgba(201,169,80,0)}}
+  .central-achei{animation:centralAchei 1.1s ease-out 2;border-radius:12px}
+  @media (prefers-reduced-motion:reduce){.central-achei{animation:none}}
 </style>
 </head>
 <body>
+<script>
+/* ===== Foco vindo da Central =====
+   A Central manda PARA ONDE ir quando a pessoa toca num aviso: '?foco=x' na primeira
+   abertura, ou centralFoco('x') quando este painel já está de pé no iframe.
+
+   Fica aqui em cima, em bloco próprio, por dois motivos que já morderam: solto no meio
+   do script principal, qualquer erro anterior deixava a função sem existir; e aplicado
+   cedo demais, o boot ainda ia chamar a aba padrão por último e engolir o foco. Então
+   o foco espera o painel avisar que terminou de subir (centralFocoPronto). */
+(function(){
+  var pedido=null, pronto=false;
+  window.centralFoco=function(f){ if(f)pedido=f; aplicar(); };
+  window.centralFocoPronto=function(){
+    pronto=true;
+    try{ var q=new URLSearchParams(location.search).get('foco'); if(q&&!pedido)pedido=q; }catch(e){}
+    aplicar();
+  };
+  /* cada passo por conta própria: trocar de aba e destacar o bloco são coisas
+     independentes, e uma falhando não pode levar a outra junto */
+  function tenta(fn){ try{ fn(); }catch(e){} }
+  function piscar(el){
+    if(!el)return;
+    el.scrollIntoView({behavior:'smooth',block:'center'});
+    el.classList.remove('central-achei'); void el.offsetWidth; el.classList.add('central-achei');
+    setTimeout(function(){ el.classList.remove('central-achei'); },2600);
+  }
+  function alvos(f,pisca){
+    if(f==='chegaram'){ tenta(function(){ goTab('chegaram'); }); window.scrollTo({top:0,behavior:'smooth'}); }
+  }
+  function aplicar(){
+    if(!pronto||!pedido)return;
+    var f=pedido; pedido=null;
+    try{ alvos(f,piscar); }catch(e){}
+  }
+})();
+</script>
+
 
 <!-- ============ LOGIN ============ -->
 <div id="loginView" class="wrap">
@@ -1879,6 +1921,8 @@ function boot(){
   assinarMes();
   assinarAbertos(); /* a aba Chegaram vale pra qualquer mês */
   carregarEstoqueRep(); /* pra cruzar com a reposição do Kigi */
+  /* depois do goTab padrão de propósito: aplicado antes, ele seria engolido por ele */
+  try{ if(window.centralFocoPronto) centralFocoPronto(); }catch(e){}
 }
 
 buildLogin();
