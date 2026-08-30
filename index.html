@@ -351,7 +351,7 @@
         <input type="text" id="fModelo" autocomplete="off" placeholder="Digite pra buscar o modelo no catálogo...">
         <div id="pickList" class="pickList hidden"></div>
       </div>
-      <div id="livreHint" class="gradeHint hidden">Modelo não está no catálogo — sem problema: será registrado do jeito que você escreveu.</div>
+      <div id="livreHint" class="dupHint hidden"></div>
       <div id="pickSel" class="pickSel hidden">
         <img id="pickSelFoto" class="hidden" alt="">
         <span id="pickSelNome"></span>
@@ -857,9 +857,21 @@ $('fModelo').addEventListener('input', e=>{
     list.classList.remove('hidden');
     [...list.children].forEach(el=>el.onclick=()=>selecionarProduto(el.dataset.id));
   }
-  $('livreHint').classList.toggle('hidden', !(q.length>=2 && !hits.length));
+  atualizarDicaModelo(q.length>=2 && !hits.length);
   updateBlocos();
 });
+/* a dica muda de tom conforme o motivo: com "não trabalhamos" marcado, o texto
+   livre é o esperado; sem ele, é erro a corrigir antes de salvar */
+function atualizarDicaModelo(semResultado){
+  const el = $('livreHint'); if(!el) return;
+  const mostrar = semResultado && !produtoSel;
+  el.classList.toggle('hidden', !mostrar);
+  if(!mostrar) return;
+  el.innerHTML = modeloForaPermitido()
+    ? '✓ Modelo fora do catálogo — vai ser registrado do jeito que você escreveu.'
+    : 'Esse modelo não está no catálogo. Procure pelo nome certo e <b>toque no modelo da lista</b>. Se a loja realmente não trabalha esse modelo, marque o motivo <b>“'+MOTIVO_FORA_CATALOGO+'”</b>.';
+}
+
 $('fModelo').addEventListener('change', ()=>{
   if(!produtoSel){ updateBlocos(); sugerirValor(); }
 });
@@ -986,6 +998,7 @@ function buildChips(elId, items, key){
       sel[key] = (sel[key]===it) ? null : it;
       [...el.children].forEach(x=>x.classList.toggle('on', x.textContent===sel[key]));
       if(key==='cor') $('fCorOutra').classList.toggle('hidden', sel.cor!=='Outra');
+      if(key==='motivo') atualizarDicaModelo(!$('livreHint').classList.contains('hidden') || (!produtoSel && !!$('fModelo').value.trim()));
     };
     el.appendChild(c);
   });
@@ -1081,6 +1094,7 @@ function editarRegistro(id){
   const r = registros.find(x=>x.id===id); if(!r) return;
   limparForm();
   editandoId = id;
+  editandoModeloOrig = r.modelo || '';
   $('fData').value = r.dataAtendimento || hojeISO();
   sel.canal = r.canal;
   [...$('chCanal').children].forEach(c=>c.classList.toggle('on', c.textContent===r.canal));
@@ -1129,9 +1143,23 @@ function cancelarEdicao(){
   goTab(volta);
 }
 
+/* modelo fora do catálogo só passa quando é justamente o motivo "não trabalhamos"
+   — é o caso legítimo (e vira o alerta de modelo procurado que a loja não tem).
+   Registro antigo em edição, com o mesmo texto, também passa: não trava quem só
+   quer corrigir o telefone de um registro velho. */
+const MOTIVO_FORA_CATALOGO = 'Não trabalhamos o modelo';
+let editandoModeloOrig = null;
+function modeloForaPermitido(){
+  const txt = $('fModelo').value.trim();
+  if(produtoSel || !txt) return true;
+  if(sel.motivo === MOTIVO_FORA_CATALOGO) return true;
+  return !!editandoId && txt === (editandoModeloOrig||'');
+}
+
 function coletarItem(){
   const modeloTxt = $('fModelo').value.trim();
   if(!modeloTxt) return {erro:'Informe o modelo.'};
+  if(!modeloForaPermitido()) return {erro:'Escolha o modelo na lista do catálogo. Se a loja não trabalha esse modelo, marque o motivo “'+MOTIVO_FORA_CATALOGO+'”.'};
   const catFinal = categoriaAuto() || 'Sem categoria';
   const ehCalcado = !!produtoSel || CAT_CALCADO.includes(catFinal);
   let numFinal = sel.numeracao;
@@ -1201,6 +1229,7 @@ function listarPendencias(){
   if(!itens.length || itemPreenchido()){
     const modeloTxt = $('fModelo').value.trim();
     if(!modeloTxt) faltas.push('Modelo');
+    else if(!modeloForaPermitido()) faltas.push('Modelo escolhido da lista do catálogo (ou motivo “'+MOTIVO_FORA_CATALOGO+'”)');
     const ehCalcado = !!produtoSel || CAT_CALCADO.includes(categoriaAuto()||'');
     if(ehCalcado && (!sel.numeracao || (sel.numeracao==='Outro' && !soDigitos($('fNumOutra').value)))) faltas.push('Numeração do cliente');
     if(!sel.motivo) faltas.push('Motivo da venda não ter saído');
@@ -1305,7 +1334,7 @@ function limparItem(){
 }
 
 function limparForm(){
-  editandoId = null;
+  editandoId = null; editandoModeloOrig = null;
   $('editBanner').classList.add('hidden');
   $('btnSalvar').textContent = 'Registrar venda perdida';
   document.querySelector('.addBtn').classList.remove('hidden');
