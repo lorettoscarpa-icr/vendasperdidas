@@ -478,7 +478,7 @@
     <div class="eyebrow">📦 Modelo chegou</div>
     <div id="mvTxt" class="mvTxt"></div>
     <a id="mvZap" class="saveBtn mvZap" target="_blank" rel="noopener" onclick="avisoEnviado()">Avisar no WhatsApp</a>
-    <button class="aBtn mvFechar" onclick="fecharAviso()">Fechar — aviso já aparece pra ela no painel</button>
+    <button class="aBtn mvFechar" onclick="fecharAviso()">Agora não — fica no aviso até alguém chamar</button>
   </div>
 </div>
 
@@ -1654,13 +1654,20 @@ function assinarAbertos(){
 }
 /* vendedora vê só os dela; Gestão vê os de todas */
 const sohMeus = lista => perfil==='Gestão' ? lista : lista.filter(r=>r.vendedora===perfil);
-const chegadosDe = ()=> sohMeus(abertos.filter(r=>r.status==='chegou'))
-  .sort((a,b)=>String(b.chegouEm||'').localeCompare(String(a.chegouEm||'')));
-/* pendentes que JÁ têm peça no estoque importado */
+/* ninguém foi avisado ainda: nem a vendedora (pela gestão), nem o cliente */
+const semAviso = r => !r.vendedoraAvisadaEm && !r.avisadoEm;
+/* card do topo: tem peça no estoque e ninguém avisou — só sai daqui depois
+   que a gestão avisa a vendedora OU a vendedora avisa o cliente */
 const noEstoqueDe = ()=> !estoqueRep ? [] :
-  sohMeus(abertos.filter(r=>r.status==='pendente'))
+  sohMeus(abertos.filter(semAviso))
     .map(r=>({r, q:qtdEstoque(r)})).filter(x=>x.q>0)
     .sort((a,b)=>String(a.r.dataAtendimento||'').localeCompare(String(b.r.dataAtendimento||'')));
+/* lista de baixo: chegados que não estão no card acima (pra não duplicar) */
+const chegadosDe = ()=>{
+  const noCard = new Set(noEstoqueDe().map(x=>x.r.id));
+  return sohMeus(abertos.filter(r=>r.status==='chegou' && !noCard.has(r.id)))
+    .sort((a,b)=>String(b.chegouEm||'').localeCompare(String(a.chegouEm||'')));
+};
 
 /* card do topo: o que está no estoque esperando alguém chamar o cliente */
 function renderNoEstoque(){
@@ -1673,7 +1680,7 @@ function renderNoEstoque(){
   $('gChegadas').innerHTML = hits.slice(0,20).map(({r,q})=>{
     const foto = fotoDoProduto(r.produtoId, r.cor);
     const btn = perfil==='Gestão'
-      ? `<button class="aBtn" onclick="marcarChegou('${r.id}')">📦 Marcar chegou</button>`
+      ? `<button class="aBtn" onclick="marcarChegou('${r.id}')">${r.status==='chegou'?'📣 Avisar vendedora':'📦 Marcar chegou'}</button>`
       : `<button class="aBtn zap" onclick="chamarDoEstoque('${r.id}')">📣 Avisar cliente</button>`;
     return `<div class="rankRow">
       ${foto?`<img src="${foto}" alt="">`:`<div class="ph">${((r.modelo||'?')[0]||'?').toUpperCase()}</div>`}
@@ -1689,8 +1696,8 @@ function renderNoEstoque(){
 
 /* vendedora chamando direto do estoque: marca chegou, avisa o cliente e registra */
 async function chamarDoEstoque(id){
-  await atualizarDoc(id, {status:'chegou', chegouEm:new Date().toISOString()});
   const r = abertos.find(x=>x.id===id);
+  if(!r || r.status!=='chegou') await atualizarDoc(id, {status:'chegou', chegouEm:new Date().toISOString()});
   if(r) r.status = 'chegou'; /* pro avisarCliente já enxergar como chegado */
   avisarCliente(id);
 }
@@ -1729,7 +1736,7 @@ let avisoPendente = null;
 
 async function marcarChegou(id){
   const r = registros.find(x=>x.id===id) || abertos.find(x=>x.id===id);
-  await atualizarDoc(id, {status:'chegou', chegouEm:new Date().toISOString()});
+  if(!r || r.status!=='chegou') await atualizarDoc(id, {status:'chegou', chegouEm:new Date().toISOString()});
   if(!r) return toast('Marcado como chegou');
   avisoPendente = r;
   const det = (r.numeracao?' nº '+r.numeracao:'') + (r.cor&&r.cor!=='Outra'?' · '+r.cor:'');
@@ -1752,12 +1759,15 @@ async function marcarChegou(id){
 async function desfazerChegou(id){
   const r = registros.find(x=>x.id===id) || abertos.find(x=>x.id===id);
   if(r && r.avisadoEm && !confirm('A vendedora já avisou o cliente que este modelo chegou.\nVoltar mesmo para “pendente”?')) return;
-  await atualizarDoc(id, {status:'pendente', chegouEm:null, avisadoEm:null});
+  await atualizarDoc(id, {status:'pendente', chegouEm:null, avisadoEm:null, vendedoraAvisadaEm:null});
   toast('Voltou para pendente');
 }
 
 function avisoEnviado(){
-  toast('✓ '+(avisoPendente?avisoPendente.vendedora:'Vendedora')+' avisada');
+  if(avisoPendente){
+    atualizarDoc(avisoPendente.id, {vendedoraAvisadaEm:new Date().toISOString()});
+    toast('✓ '+avisoPendente.vendedora+' avisada');
+  }
   setTimeout(fecharAviso, 400);
 }
 function fecharAviso(){ $('modalAviso').classList.add('hidden'); avisoPendente = null; }
