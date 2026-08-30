@@ -409,9 +409,15 @@
       <input type="month" id="mesMeus" onchange="setMes(this.value)">
       <span class="count" id="countMeus"></span>
     </div>
-    <div class="filterRow hidden" id="filtrosMeus">
-      <select id="filVendMeus" onchange="renderMeus()"><option value="">Todas as vendedoras</option></select>
-      <select id="filFornMeus" onchange="renderMeus()"><option value="">Todos os fornecedores</option></select>
+    <div class="filterRow" id="filtrosMeus">
+      <select id="filStatusMeus" onchange="renderMeus()">
+        <option value="">Todas as situações</option>
+        <option value="pendente">⏳ Ainda não chegaram</option>
+        <option value="chegou">📦 Chegaram</option>
+        <option value="resolvido">✓ Resolvidos</option>
+      </select>
+      <select id="filVendMeus" class="hidden" onchange="renderMeus()"><option value="">Todas as vendedoras</option></select>
+      <select id="filFornMeus" class="hidden" onchange="renderMeus()"><option value="">Todos os fornecedores</option></select>
     </div>
     <div id="listMeus"></div>
   </div>
@@ -1436,8 +1442,12 @@ async function definirCategoria(id, cat){
 
 function renderMeus(){
   const ehGestor = perfil==='Gestão';
-  $('filtrosMeus').classList.toggle('hidden', !ehGestor);
   let meus = ehGestor ? registros : registros.filter(r=>r.vendedora===perfil);
+  /* situação vale pros dois perfis: "o que ainda estou esperando?" */
+  const fst = $('filStatusMeus').value;
+  if(fst) meus = meus.filter(r=>(r.status||'pendente')===fst);
+  $('filVendMeus').classList.toggle('hidden', !ehGestor);
+  $('filFornMeus').classList.toggle('hidden', !ehGestor);
   if(ehGestor){
     const fv = $('filVendMeus');
     if(fv.options.length===1) VENDEDORAS.forEach(v=>fv.add(new Option(v,v)));
@@ -1455,9 +1465,12 @@ function renderMeus(){
   let banner = '';
   if(novos.length) banner += `<div class="chegouBanner">📦 ${novos.length===1?'1 modelo chegou':novos.length+' modelos chegaram'} — toque em “📣 Avisar que chegou” e depois marque “✓ Resolvido”.</div>`;
   const ordenados = [...chegados, ...meus.filter(r=>r.status!=='chegou')];
+  const filtrando = !!(fst || (ehGestor && ($('filVendMeus').value || $('filFornMeus').value)));
   $('listMeus').innerHTML = meus.length
     ? banner + ordenados.map(r=>cardRegistro(r, true)).join('')
-    : `<div class="empty"><b>Nenhum registro neste mês</b>Perdeu uma venda por falta de estoque? Registre na aba “＋ Registrar”.</div>`;
+    : (filtrando
+        ? '<div class="empty" style="padding:30px">Nenhum registro com esses filtros neste mês.</div>'
+        : `<div class="empty"><b>Nenhum registro neste mês</b>Perdeu uma venda por falta de estoque? Registre na aba “＋ Registrar”.</div>`);
 }
 
 function barGroup(el, mapa, total, fmt){
