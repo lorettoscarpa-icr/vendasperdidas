@@ -418,6 +418,11 @@
 
   <!-- ===== CHEGARAM ===== -->
   <div id="view-chegaram" class="hidden">
+    <div class="card hidden" id="cardChegadas">
+      <div class="eyebrow" id="ttChegadas">No estoque — pode chamar o cliente</div>
+      <div id="gChegadas"></div>
+      <div class="gradeHint">Confira a peça na loja antes de prometer pro cliente — o estoque vem da última importação do Kigi.</div>
+    </div>
     <div id="listChegaram"></div>
   </div>
 
@@ -434,7 +439,6 @@
       <div class="kpi"><div class="n" id="kQtd">0</div><div class="l">Registros</div></div>
       <div class="kpi"><div class="n" id="kContato">0%</div><div class="l">Com contato</div></div>
     </div>
-    <div class="card hidden" id="cardChegadas"><div class="eyebrow">Reposição no estoque — clientes esperando</div><div id="gChegadas"></div></div>
     <div class="card"><div class="eyebrow">Por tipo de produto</div><div id="gCategoria"></div></div>
     <div class="card">
       <div class="eyebrow">Modelos mais perdidos</div>
@@ -1048,7 +1052,7 @@ async function salvarDoc(doc){
 }
 async function atualizarDoc(id, patch){
   historico = null;
-  if(!usandoFirebase) setTimeout(assinarChegados, 0); /* modo local: refaz a lista de chegados */
+  if(!usandoFirebase) setTimeout(assinarAbertos, 0); /* modo local: refaz a lista de chegados */
   if(usandoFirebase){ await db.collection(COL).doc(id).update(patch); }
   else{
     const all = JSON.parse(localStorage.getItem('lsvp_registros')||'[]');
@@ -1374,7 +1378,7 @@ function cardRegistro(r, comAcoes){
 
 /* abre o WhatsApp do cliente com a mensagem de reposição pronta */
 function avisarCliente(id){
-  const r = registros.find(x=>x.id===id);
+  const r = registros.find(x=>x.id===id) || abertos.find(x=>x.id===id);
   if(!r || !r.clienteZap) return;
   const nome = (r.clienteNome||'').trim().split(/\s+/)[0];
   const quem = perfil==='Gestão' ? 'a equipe' : 'a '+perfil;
@@ -1470,7 +1474,7 @@ function renderGestao(){
   barGroup('gNumeracao', nums, totN, v=>v+'×');
   renderModelosPerdidos();
   renderAvaliacao();
-  renderChegadas();
+  renderChegaram();
   if(!historico && !_histCarregando) carregarHistorico(); /* alimenta o histórico e a avaliação */
 
   /* filtros da lista + busca rápida (cliente, modelo, nº — como nas Encomendas) */
@@ -1507,7 +1511,7 @@ async function carregarHistorico(){
     }
   }catch(e){ console.warn('Histórico indisponível:', e); }
   _histCarregando = false;
-  if(perfil==='Gestão'){ renderModelosPerdidos(); renderAvaliacao(); renderChegadas(); }
+  if(perfil==='Gestão'){ renderModelosPerdidos(); renderAvaliacao(); }
 }
 
 /* ranking de modelos: junta pelo produto do catálogo (registros "livres" agrupam pelo nome digitado) */
@@ -1557,7 +1561,7 @@ async function carregarEstoqueRep(){
       fornRep    = (d && d.forn)    || {}; /* {fornId:{nome,apelido,...}} */
     }
   }catch(e){ console.warn('Estoque da reposição indisponível:', e); }
-  renderChegadas();
+  renderChegaram();
   if(perfil==='Gestão') renderGestao();
 }
 /* mesma normalização de chave da Central do Estoque (normKey) */
@@ -1583,27 +1587,6 @@ function qtdEstoque(r){
   });
   return melhor;
 }
-function renderChegadas(){
-  const card = $('cardChegadas'); if(!card) return;
-  if(perfil!=='Gestão' || !estoqueRep){ card.classList.add('hidden'); return; }
-  const fonte = (historico||registros).filter(r=>r.status==='pendente');
-  const hits = fonte.map(r=>({r, q:qtdEstoque(r)})).filter(x=>x.q>0)
-    .sort((a,b)=>(a.r.dataAtendimento||'').localeCompare(b.r.dataAtendimento||''));
-  if(!hits.length){ card.classList.add('hidden'); return; }
-  card.classList.remove('hidden');
-  $('gChegadas').innerHTML = hits.slice(0,20).map(({r,q})=>{
-    const foto = fotoDoProduto(r.produtoId, r.cor);
-    return `<div class="rankRow">
-      ${foto?`<img src="${foto}" alt="">`:`<div class="ph">${((r.modelo||'?')[0]||'?').toUpperCase()}</div>`}
-      <div class="ri">
-        <div class="rn">${r.modelo||r.categoria} — nº ${r.numeracao}${r.cor?' · '+r.cor:''}</div>
-        <div class="rs">${r.clienteNome||'cliente'} · ${r.vendedora} · ${fmtData(r.dataAtendimento)} · <b style="color:var(--ok)">${q} un no estoque</b></div>
-      </div>
-      <button class="aBtn" onclick="marcarChegou('${r.id}')">📦 Marcar chegou</button>
-    </div>`;
-  }).join('');
-}
-
 /* ---------- avaliação do sistema: padrões que pedem providência ---------- */
 function renderAvaliacao(){
   const el = $('gAvaliacao'); if(!el) return;
@@ -1653,34 +1636,77 @@ function renderAvaliacao(){
 }
 
 /* ---------- aba Chegaram: todo mundo que já chegou, de qualquer mês ---------- */
-let chegados = [], unsubCheg = null;
+let abertos = [], unsubAbertos = null;
 
-function assinarChegados(){
-  const aplicar = lista=>{
-    chegados = lista.sort((a,b)=>String(b.chegouEm||'').localeCompare(String(a.chegouEm||'')));
-    renderChegaram();
-  };
+/* uma assinatura só pros registros em aberto: pendentes (pra cruzar com o estoque)
+   e chegados (pra chamar o cliente) — de qualquer mês, que é o que importa aqui */
+function assinarAbertos(){
+  const aplicar = lista=>{ abertos = lista; renderChegaram(); };
   if(usandoFirebase){
-    if(unsubCheg){ unsubCheg(); unsubCheg=null; }
-    unsubCheg = db.collection(COL).where('status','==','chegou')
+    if(unsubAbertos){ unsubAbertos(); unsubAbertos=null; }
+    unsubAbertos = db.collection(COL).where('status','in',['pendente','chegou'])
       .onSnapshot(s=>aplicar(s.docs.map(d=>({id:d.id, ...d.data()}))),
-                  e=>console.warn('Chegados indisponíveis:', e));
+                  e=>console.warn('Registros em aberto indisponíveis:', e));
   }else{
-    aplicar(JSON.parse(localStorage.getItem('lsvp_registros')||'[]').filter(r=>r.status==='chegou'));
+    aplicar(JSON.parse(localStorage.getItem('lsvp_registros')||'[]')
+      .filter(r=>r.status==='pendente'||r.status==='chegou'));
   }
 }
-const meusChegados = ()=> perfil==='Gestão' ? chegados : chegados.filter(r=>r.vendedora===perfil);
+/* vendedora vê só os dela; Gestão vê os de todas */
+const sohMeus = lista => perfil==='Gestão' ? lista : lista.filter(r=>r.vendedora===perfil);
+const chegadosDe = ()=> sohMeus(abertos.filter(r=>r.status==='chegou'))
+  .sort((a,b)=>String(b.chegouEm||'').localeCompare(String(a.chegouEm||'')));
+/* pendentes que JÁ têm peça no estoque importado */
+const noEstoqueDe = ()=> !estoqueRep ? [] :
+  sohMeus(abertos.filter(r=>r.status==='pendente'))
+    .map(r=>({r, q:qtdEstoque(r)})).filter(x=>x.q>0)
+    .sort((a,b)=>String(a.r.dataAtendimento||'').localeCompare(String(b.r.dataAtendimento||'')));
+
+/* card do topo: o que está no estoque esperando alguém chamar o cliente */
+function renderNoEstoque(){
+  const card = $('cardChegadas'); if(!card) return [];
+  const hits = noEstoqueDe();
+  card.classList.toggle('hidden', !hits.length);
+  if(!hits.length) return hits;
+  $('ttChegadas').textContent = perfil==='Gestão'
+    ? 'No estoque — clientes esperando' : 'No estoque — pode chamar o cliente';
+  $('gChegadas').innerHTML = hits.slice(0,20).map(({r,q})=>{
+    const foto = fotoDoProduto(r.produtoId, r.cor);
+    const btn = perfil==='Gestão'
+      ? `<button class="aBtn" onclick="marcarChegou('${r.id}')">📦 Marcar chegou</button>`
+      : `<button class="aBtn zap" onclick="chamarDoEstoque('${r.id}')">📣 Avisar cliente</button>`;
+    return `<div class="rankRow">
+      ${foto?`<img src="${foto}" alt="">`:`<div class="ph">${((r.modelo||'?')[0]||'?').toUpperCase()}</div>`}
+      <div class="ri">
+        <div class="rn">${r.modelo||r.categoria} — nº ${r.numeracao}${r.cor?' · '+r.cor:''}</div>
+        <div class="rs">${r.clienteNome||'cliente'}${perfil==='Gestão'?' · '+r.vendedora:''} · ${fmtData(r.dataAtendimento)} · <b style="color:var(--ok)">${q} un no estoque</b></div>
+      </div>
+      ${btn}
+    </div>`;
+  }).join('');
+  return hits;
+}
+
+/* vendedora chamando direto do estoque: marca chegou, avisa o cliente e registra */
+async function chamarDoEstoque(id){
+  await atualizarDoc(id, {status:'chegou', chegouEm:new Date().toISOString()});
+  const r = abertos.find(x=>x.id===id);
+  if(r) r.status = 'chegou'; /* pro avisarCliente já enxergar como chegado */
+  avisarCliente(id);
+}
 
 function renderChegaram(){
-  const lista = meusChegados();
-  /* badge na aba: só o que ainda não foi avisado é urgente */
-  const aAvisar = lista.filter(r=>!r.avisadoEm).length;
+  const noEstoque = renderNoEstoque();
+  const lista = chegadosDe();
+  /* badge na aba: o que está no estoque + o que chegou e ninguém avisou */
+  const aAvisar = noEstoque.length + lista.filter(r=>!r.avisadoEm).length;
   const b = $('badgeChegaram');
   b.textContent = aAvisar || '';
   b.classList.toggle('hidden', !aAvisar);
   const host = $('listChegaram'); if(!host) return;
   if(!lista.length){
-    host.innerHTML = `<div class="empty"><b>Nada esperando no momento</b>Quando um modelo de venda perdida chegar na loja, ele aparece aqui pra você chamar o cliente.</div>`;
+    host.innerHTML = noEstoque.length ? '' :
+      `<div class="empty"><b>Nada esperando no momento</b>Quando um modelo de venda perdida chegar na loja, ele aparece aqui pra você chamar o cliente.</div>`;
     return;
   }
   const novos = lista.filter(r=>!r.avisadoEm), avisados = lista.filter(r=>r.avisadoEm);
@@ -1702,7 +1728,7 @@ const TEL_VENDEDORA = {
 let avisoPendente = null;
 
 async function marcarChegou(id){
-  const r = registros.find(x=>x.id===id) || chegados.find(x=>x.id===id);
+  const r = registros.find(x=>x.id===id) || abertos.find(x=>x.id===id);
   await atualizarDoc(id, {status:'chegou', chegouEm:new Date().toISOString()});
   if(!r) return toast('Marcado como chegou');
   avisoPendente = r;
@@ -1724,7 +1750,7 @@ async function marcarChegou(id){
   $('modalAviso').classList.remove('hidden');
 }
 async function desfazerChegou(id){
-  const r = registros.find(x=>x.id===id) || chegados.find(x=>x.id===id);
+  const r = registros.find(x=>x.id===id) || abertos.find(x=>x.id===id);
   if(r && r.avisadoEm && !confirm('A vendedora já avisou o cliente que este modelo chegou.\nVoltar mesmo para “pendente”?')) return;
   await atualizarDoc(id, {status:'pendente', chegouEm:null, avisadoEm:null});
   toast('Voltou para pendente');
@@ -1769,7 +1795,6 @@ function boot(){
   carregarFotos();
   carregarMapa();
   carregarPrecosOficiais();
-  if(perfil==='Gestão') carregarEstoqueRep();
   $('secNumeracao').classList.add('hidden');
   $('fData').value = hojeISO();
   $('mesMeus').value = mesAtual; $('mesGestao').value = mesAtual;
@@ -1781,7 +1806,8 @@ function boot(){
 
   goTab(perfil==='Gestão' ? 'gestao' : 'registrar');
   assinarMes();
-  assinarChegados(); /* a aba Chegaram vale pra qualquer mês */
+  assinarAbertos(); /* a aba Chegaram vale pra qualquer mês */
+  carregarEstoqueRep(); /* pra cruzar com a reposição do Kigi */
 }
 
 buildLogin();
