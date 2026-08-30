@@ -1423,10 +1423,8 @@ function renderMeus(){
   $('countMeus').textContent = meus.length+' registro'+(meus.length===1?'':'s');
   const chegados = meus.filter(r=>r.status==='chegou');
   const novos = chegados.filter(r=>!r.avisadoEm);
-  const semResposta = chegados.filter(r=>r.avisadoEm && diasDesde(r.avisadoEm)>=2);
   let banner = '';
   if(novos.length) banner += `<div class="chegouBanner">📦 ${novos.length===1?'1 modelo chegou':novos.length+' modelos chegaram'} — toque em “📣 Avisar que chegou” e depois marque “✓ Resolvido”.</div>`;
-  if(semResposta.length) banner += `<div class="chegouBanner">⏰ ${semResposta.length===1?'1 cliente avisado':semResposta.length+' clientes avisados'} há 2+ dias sem resposta — vale chamar de novo.</div>`;
   const ordenados = [...chegados, ...meus.filter(r=>r.status!=='chegou')];
   $('listMeus').innerHTML = meus.length
     ? banner + ordenados.map(r=>cardRegistro(r, true)).join('')
