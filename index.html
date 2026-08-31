@@ -344,6 +344,22 @@
 </script>
 
 
+<!-- Abertura: enquanto o Firebase não diz quem está logado, ninguém precisa ver
+     "Quem está entrando?" — quem já tem sessão nunca escolhe nada. -->
+<style>
+  html.checando #loginView{display:none}
+  #splashVP{position:fixed;inset:0;z-index:200;display:none;flex-direction:column;
+    align-items:center;justify-content:center;gap:20px;background:#0f1508}
+  html.checando #splashVP{display:flex}
+  #splashVP .marca{font-family:'Cormorant Garamond',Georgia,serif;font-size:26px;letter-spacing:3px;
+    text-transform:uppercase;color:#d9c89a;opacity:.9}
+  #splashVP .ring{width:32px;height:32px;border-radius:50%;border:3px solid rgba(217,200,154,.22);
+    border-top-color:#d9c89a;animation:girando .8s linear infinite}
+  @keyframes girando{to{transform:rotate(360deg)}}
+</style>
+<div id="splashVP"><span class="marca">Loretto Scarpa</span><span class="ring"></span></div>
+<script>document.documentElement.classList.add('checando');</script>
+
 <!-- ============ LOGIN ============ -->
 <div id="loginView" class="wrap">
   <div class="brand">Loretto Scarpa</div>
@@ -593,7 +609,7 @@ if(usandoFirebase && firebase.auth){
     firebase.auth().onAuthStateChanged(u=>{
       emailLogado = u ? (u.email||'').trim().toLowerCase() : null;
       const p = emailLogado ? EMAIL_PERFIL[emailLogado] : null;
-      if(!p) return;
+      if(!p){ if(!perfil) pedirPerfil(); return; }   /* não conhece a conta: aí pergunta */
       if(!perfil) entrar(p); /* entra sozinha com o login da Central */
       else if(perfil!==p && !(perfil==='Gestão' && GESTAO_EMAILS.includes(emailLogado))) entrar(p); /* perfil salvo de outra pessoa neste aparelho */
     });
@@ -1085,7 +1101,7 @@ function trocarPerfil(){
   perfil=null; localStorage.removeItem('lsvp_perfil');
   if(unsub){unsub();unsub=null;}
   $('appView').classList.add('hidden');
-  $('loginView').classList.remove('hidden');
+  pedirPerfil();
 }
 
 /* ---------- dados ---------- */
@@ -1909,7 +1925,13 @@ function exportCSV(){
 }
 
 /* ---------- boot ---------- */
+/* Tira a tela de abertura. Chamada de todo caminho que decide o que mostrar: entrou
+   sozinha pela Central, não há sessão nenhuma, ou o Firebase não respondeu a tempo. */
+function decidiu(){ document.documentElement.classList.remove('checando'); }
+function pedirPerfil(){ decidiu(); $('loginView').classList.remove('hidden'); }
+
 function boot(){
+  decidiu();
   $('loginView').classList.add('hidden');
   $('appView').classList.remove('hidden');
   $('whoChip').textContent = perfil==='Gestão' ? '◆ Gestão' : perfil;
@@ -1942,6 +1964,12 @@ function boot(){
 }
 
 buildLogin();
+if(!perfil){
+  /* Sem perfil guardado neste aparelho: espera o login herdado da Central. Se em 3s não
+     vier resposta nenhuma, aí sim mostra a escolha — melhor perguntar do que travar. */
+  if(usandoFirebase && firebase.auth) setTimeout(()=>{ if(!perfil) pedirPerfil(); }, 3000);
+  else pedirPerfil();
+}
 if(perfil){
   if(usandoFirebase && firebase.auth){
     /* espera o login herdado da Central chegar do IndexedDB antes de abrir as
