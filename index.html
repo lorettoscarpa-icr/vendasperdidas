@@ -334,6 +334,35 @@
   }
   function alvos(f,pisca){
     if(f==='chegaram'){ tenta(function(){ goTab('chegaram'); }); window.scrollTo({top:0,behavior:'smooth'}); }
+    if(f==='novo'){ tenta(function(){ goTab('registrar'); }); tenta(aplicarPrefill); window.scrollTo({top:0,behavior:'smooth'}); }
+  }
+
+  /* O que a Escala de Atendimento já sabe: data, canal e motivo. Vem pelo localStorage
+     (mesmo domínio) porque é recado entre painéis, não estado de ninguém.
+
+     Só vale por 10 minutos: pedido velho preenchendo o formulário de outro dia seria
+     pior do que não preencher nada. */
+  function aplicarPrefill(){
+    var cru=null;
+    try{ cru = localStorage.getItem('ls_vp_prefill'); }catch(e){ return; }
+    if(!cru) return;
+    try{ localStorage.removeItem('ls_vp_prefill'); }catch(e){}
+    var d; try{ d = JSON.parse(cru); }catch(e){ return; }
+    if(!d || d.de!=='vez' || !d.quando || (Date.now()-d.quando) > 10*60*1000) return;
+
+    if(d.data && $('fData')) $('fData').value = d.data;
+    if(d.canal)  marcarChip('chCanal','canal',d.canal);
+    if(d.motivo) marcarChip('chMotivo','motivo',d.motivo);
+    tenta(function(){ atualizarDicaModelo(false); });
+    var av=$('vindoDaVez'); if(av) av.classList.remove('hidden');
+    tenta(function(){ $('fModelo').focus(); });
+  }
+  /* marca o chip como se tivesse sido tocado: mexer só no 'sel' deixaria a tela dizendo
+     uma coisa e o formulário gravando outra */
+  function marcarChip(elId, chave, valor){
+    var el=$(elId); if(!el || typeof sel==='undefined') return;
+    sel[chave]=valor;
+    [].forEach.call(el.children, function(x){ x.classList.toggle('on', x.textContent===valor); });
   }
   function aplicar(){
     if(!pronto||!pedido)return;
@@ -396,6 +425,10 @@
     <div id="editBanner" class="editBanner hidden">
       <span id="editBannerTxt"></span>
       <button type="button" class="linkBtn" onclick="cancelarEdicao()">Cancelar</button>
+    </div>
+    <div id="vindoDaVez" class="editBanner hidden">
+      <span>Veio da <b>Escala de Atendimento</b> — data, canal e motivo já preenchidos.
+        Complete o modelo, a numeração e os dados da cliente.</span>
     </div>
     <div class="card">
       <div class="eyebrow">Atendimento</div>
@@ -1401,6 +1434,7 @@ function limparItem(){
 }
 
 function limparForm(){
+  { const av=document.getElementById('vindoDaVez'); if(av) av.classList.add('hidden'); }
   editandoId = null; editandoModeloOrig = null;
   $('editBanner').classList.add('hidden');
   $('btnSalvar').textContent = 'Registrar venda perdida';
