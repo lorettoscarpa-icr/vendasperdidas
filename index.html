@@ -1429,6 +1429,11 @@ function cardRegistro(r, comAcoes){
       : `<button class="aBtn" onclick="atualizarDoc('${r.id}',{status:'resolvido',resolvidoEm:new Date().toISOString()});toast('Marcado como resolvido')">✓ Resolvido</button>`;
     const btnChegou = (perfil==='Gestão' && r.status==='pendente')
       ? `<button class="aBtn" onclick="marcarChegou('${r.id}')">📦 Chegou</button>` : '';
+    /* a gestão precisa poder avisar a vendedora DEPOIS: antes isso só existia no
+       popup do clique e no card do estoque — registro sem peça cruzada ficava sem
+       opção nenhuma, que era o furo */
+    const avisarVend = (perfil==='Gestão' && chegou)
+      ? `<button class="aBtn" onclick="marcarChegou('${r.id}')">${r.vendedoraAvisadaEm?'📣 Avisar '+r.vendedora+' de novo':'📣 Avisar '+r.vendedora}</button>` : '';
     /* marcou chegou sem querer? volta pra pendente e some da aba Chegaram */
     const desfazer = (perfil==='Gestão' && chegou)
       ? `<button class="aBtn" onclick="desfazerChegou('${r.id}')">↩ Não chegou</button>` : '';
@@ -1437,11 +1442,12 @@ function cardRegistro(r, comAcoes){
     const del = perfil==='Gestão' ? `<button class="aBtn del" onclick="excluirDoc('${r.id}')">Excluir</button>` : '';
     const defCat = (perfil==='Gestão' && r.categoria==='Sem categoria')
       ? `<select class="catSel" onchange="definirCategoria('${r.id}', this.value)"><option value="">Definir categoria…</option>${CATEGORIAS.map(c=>'<option>'+c+'</option>').join('')}</select>` : '';
-    acoes = `<div class="actions">${defCat}${zap}${btnChegou}${desfazer}${editar}${resolver}${del}</div>`;
+    acoes = `<div class="actions">${defCat}${zap}${btnChegou}${avisarVend}${desfazer}${editar}${resolver}${del}</div>`;
   }
   const tagChegou = chegou
     ? (r.avisadoEm ? '📣 Avisado '+(d=>d===0?'hoje':'há '+d+(d===1?' dia':' dias'))(diasDesde(r.avisadoEm))+' — aguardando resposta'
-                   : '📦 Chegou — chamar o cliente')
+       : (perfil==='Gestão' && !r.vendedoraAvisadaEm ? '📦 Chegou — avisar '+r.vendedora
+                                                     : '📦 Chegou — chamar o cliente'))
     : '';
   const forn = (perfil==='Gestão') ? fornecedorDe(r) : null;
   return `<div class="reg${chegou?' chegou':''}${res?' res':''}">
